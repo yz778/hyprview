@@ -1,6 +1,13 @@
 # hyprview
 
-`hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in a grid for easy navigation.
+`hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in an adaptive grid layout for easy navigation.
+
+The grid layout adapts to the number of windows:
+- **1 window:** Displayed at 80% screen size, centered
+- **2 windows:** 2×1 grid
+- **3-4 windows:** 2×2 grid
+- **5-9 windows:** 3×3 grid
+- **10+ windows:** 4×N grid
 
 https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
@@ -12,7 +19,7 @@ https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 * **Trackpad Gestures:** Use swipe gestures to open and close the overview.
 * **Smooth Animations:** Animated transitions when opening/closing the overview.
 * **Multi-monitor Support:** Provides a separate overview for each monitor.
-* **Customizable Appearance:** Change colors, borders, margins, padding, and radii.
+* **Customizable Appearance:** Change colors, borders, margins, and radii.
 * **Active Window Highlighting:** Distinguished border color for the currently focused window.
 * **Focus Restoration:** Properly restores window focus when closing the overview.
 

@@ -241,14 +241,26 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   const size_t windowCount = windowsToRender.size();
 
-  if (windowCount < 3) {
+  // Grid size calculation:
+  // 1 window: 1x1 (80% of screen size, centered)
+  // 2 windows: 2x1
+  // 3-4 windows: 2x2
+  // 5-9 windows: 3x3
+  // 10+ windows: 4xX
+  if (windowCount == 1) {
+    SIDE_LENGTH = 1;
+    GRID_ROWS = 1;
+  } else if (windowCount <= 2) {
     SIDE_LENGTH = 2;
     GRID_ROWS = 1;
-  } else if (windowCount < 5) {
+  } else if (windowCount <= 4) {
     SIDE_LENGTH = 2;
     GRID_ROWS = 2;
-  } else {
+  } else if (windowCount <= 9) {
     SIDE_LENGTH = 3;
+    GRID_ROWS = 3;
+  } else {
+    SIDE_LENGTH = 4;
     GRID_ROWS = (windowCount + SIDE_LENGTH - 1) / SIDE_LENGTH;
   }
 
@@ -703,6 +715,11 @@ void CHyprView::fullRender() {
   Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
   Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGINSIZE, 2.0 * MARGINSIZE};
 
+  // Special case for single window: 80% of screen size, centered
+  if (images.size() == 1) {
+    tileRenderSize = SIZE * 0.8;
+  }
+
   // Render the captured background instead of a solid color
   if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
     CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
@@ -734,8 +751,16 @@ void CHyprView::fullRender() {
       newSize.x = newSize.y * textureAspect;
     }
 
-    const double cellX = x * tileSize.x + MARGINSIZE;
-    const double cellY = y * tileSize.y + MARGINSIZE;
+    // For single window, center it on screen; otherwise use grid positioning
+    double cellX, cellY;
+    if (images.size() == 1) {
+      cellX = (SIZE.x - tileRenderSize.x) / 2.0;
+      cellY = (SIZE.y - tileRenderSize.y) / 2.0;
+    } else {
+      cellX = x * tileSize.x + MARGINSIZE;
+      cellY = y * tileSize.y + MARGINSIZE;
+    }
+
     const double offsetX = (tileRenderSize.x - newSize.x) / 2.0;
     const double offsetY = (tileRenderSize.y - newSize.y) / 2.0;
 

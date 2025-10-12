@@ -32,7 +32,12 @@ The `CHyprView` class is responsible for:
    - Maintains original window positions and workspaces
 2. **Grid Layout**:
 
-   - Dynamically calculates grid size (2x1, 2x2, or 3xN) based on window count
+   - Dynamically calculates grid size based on window count:
+     - 1 window: 1×1 (80% screen size, centered)
+     - 2 windows: 2×1
+     - 3-4 windows: 2×2
+     - 5-9 windows: 3×3
+     - 10+ windows: 4×N
    - Calculates tile positions and sizes for each window
 3. **Rendering Pipeline**:
 
@@ -99,7 +104,14 @@ The plugin modifies Hyprland's rendering behavior through strategic hooks:
 
 ### Grid Layout Calculation
 
-1. **Dynamic Sizing**: Calculates grid dimensions based on window count
+The grid layout adapts intelligently to the number of windows:
+
+1. **Adaptive Grid Sizing**:
+   - 1 window: Centered at 80% of screen size for comfortable viewing
+   - 2 windows: 2×1 horizontal layout
+   - 3-4 windows: 2×2 balanced grid
+   - 5-9 windows: 3×3 grid
+   - 10+ windows: 4×N grid with dynamic row count
 2. **Position Calculation**: Determines positions and sizes for each window tile
 3. **Aspect Ratio Adjustment**: Maintains window aspect ratios within tiles
 
