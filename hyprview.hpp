@@ -118,4 +118,4 @@ private:
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
-inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHypreEyeInstances;
+inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHypreViewInstances;

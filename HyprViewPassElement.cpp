@@ -8,12 +8,12 @@ CHyprViewPassElement::CHyprViewPassElement(CHyprView *instance_) : instance(inst
 void CHyprViewPassElement::draw(const CRegion &damage) {
   LOG_FILE("=== CHyprViewPassElement::draw() CALLED ===");
   LOG_FILE(std::string("draw(): instance pointer=") + std::to_string((unsigned long)instance));
-  LOG_FILE(std::string("draw(): g_pHypreEyeInstances.size()=") + std::to_string(g_pHypreEyeInstances.size()));
+  LOG_FILE(std::string("draw(): g_pHypreViewInstances.size()=") + std::to_string(g_pHypreViewInstances.size()));
 
   // Check if the instance still exists in the global map before rendering
   // This prevents crashes when the instance has been deleted
   bool instanceStillValid = false;
-  for (auto &[monitor, inst] : g_pHypreEyeInstances) {
+  for (auto &[monitor, inst] : g_pHypreViewInstances) {
     if (inst.get() == instance) {
       instanceStillValid = true;
       LOG_FILE("draw(): Found valid instance in map");

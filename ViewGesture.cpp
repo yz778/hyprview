@@ -13,10 +13,10 @@ void CViewGesture::begin(const ITrackpadGesture::STrackpadGestureBegin &e) {
   if (!PMONITOR)
     return;
 
-  auto it = g_pHypreEyeInstances.find(PMONITOR);
-  if (it == g_pHypreEyeInstances.end() || !it->second) {
+  auto it = g_pHypreViewInstances.find(PMONITOR);
+  if (it == g_pHypreViewInstances.end() || !it->second) {
     // Create overview for this monitor
-    g_pHypreEyeInstances[PMONITOR] = std::make_unique<CHyprView>(PMONITOR, PMONITOR->m_activeWorkspace, true);
+    g_pHypreViewInstances[PMONITOR] = std::make_unique<CHyprView>(PMONITOR, PMONITOR->m_activeWorkspace, true);
   } else {
     // Close the overview - but don't call selectHoveredWindow()
     // The gesture swipe is not an explicit selection
@@ -39,8 +39,8 @@ void CViewGesture::update(const ITrackpadGesture::STrackpadGestureUpdate &e) {
   if (!PMONITOR)
     return;
 
-  auto it = g_pHypreEyeInstances.find(PMONITOR);
-  if (it != g_pHypreEyeInstances.end() && it->second)
+  auto it = g_pHypreViewInstances.find(PMONITOR);
+  if (it != g_pHypreViewInstances.end() && it->second)
     it->second->onSwipeUpdate(m_lastDelta);
 }
 
@@ -49,8 +49,8 @@ void CViewGesture::end(const ITrackpadGesture::STrackpadGestureEnd &e) {
   if (!PMONITOR)
     return;
 
-  auto it = g_pHypreEyeInstances.find(PMONITOR);
-  if (it != g_pHypreEyeInstances.end() && it->second) {
+  auto it = g_pHypreViewInstances.find(PMONITOR);
+  if (it != g_pHypreViewInstances.end() && it->second) {
     it->second->setClosing(false);
     it->second->onSwipeEnd();
     it->second->resetSwipe();

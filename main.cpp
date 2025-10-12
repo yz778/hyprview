@@ -32,8 +32,8 @@ static bool renderingOverview = false;
 
 static void hkRenderWorkspace(void *thisptr, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, timespec *now, const CBox &geometry) {
   // Check if this monitor has an active overview
-  auto it = g_pHypreEyeInstances.find(pMonitor);
-  bool hasOverview = (it != g_pHypreEyeInstances.end() && it->second != nullptr);
+  auto it = g_pHypreViewInstances.find(pMonitor);
+  bool hasOverview = (it != g_pHypreViewInstances.end() && it->second != nullptr);
 
   if (!hasOverview || renderingOverview || (hasOverview && it->second->blockOverviewRendering)) {
     // Normal rendering when overview is not active on this monitor
@@ -55,8 +55,8 @@ static void hkAddDamageA(void *thisptr, const CBox &box) {
     return;
   }
 
-  auto it = g_pHypreEyeInstances.find(PMONITORSP);
-  if (it == g_pHypreEyeInstances.end() || !it->second || it->second->blockDamageReporting) {
+  auto it = g_pHypreViewInstances.find(PMONITORSP);
+  if (it == g_pHypreViewInstances.end() || !it->second || it->second->blockDamageReporting) {
     ((origAddDamageA)g_pAddDamageHookA->m_original)(thisptr, box);
     return;
   }
@@ -73,8 +73,8 @@ static void hkAddDamageB(void *thisptr, const pixman_region32_t *rg) {
     return;
   }
 
-  auto it = g_pHypreEyeInstances.find(PMONITORSP);
-  if (it == g_pHypreEyeInstances.end() || !it->second || it->second->blockDamageReporting) {
+  auto it = g_pHypreViewInstances.find(PMONITORSP);
+  if (it == g_pHypreViewInstances.end() || !it->second || it->second->blockDamageReporting) {
     ((origAddDamageB)g_pAddDamageHookB->m_original)(thisptr, rg);
     return;
   }
@@ -133,7 +133,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   Debug::log(LOG, "[hyprview] Dispatcher called with arg='{}'", arg);
 
   // Check if any instance is swiping
-  for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+  for (auto &[monitor, instance] : g_pHypreViewInstances) {
     if (instance && instance->m_isSwiping)
       return {.success = false, .error = "already swiping"};
   }
@@ -145,8 +145,8 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   if (parsedArgs.action == DispatcherArgs::Action::SELECT) {
     auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
     if (PMONITOR) {
-      auto it = g_pHypreEyeInstances.find(PMONITOR);
-      if (it != g_pHypreEyeInstances.end() && it->second) {
+      auto it = g_pHypreViewInstances.find(PMONITOR);
+      if (it != g_pHypreViewInstances.end() && it->second) {
         it->second->selectHoveredWindow();
         it->second->close();
       }
@@ -157,7 +157,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   // Handle OFF action
   if (parsedArgs.action == DispatcherArgs::Action::OFF) {
     LOG_FILE("=== OFF/CLOSE/DISABLE CALLED ===");
-    for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+    for (auto &[monitor, instance] : g_pHypreViewInstances) {
       if (instance) {
         LOG_FILE("off: Calling close() on instance");
         instance->close();
@@ -168,15 +168,15 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
 
     LOG_FILE("off: Cleaning up empty monitor instances");
-    for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end();) {
+    for (auto it = g_pHypreViewInstances.begin(); it != g_pHypreViewInstances.end();) {
       if (it->second && it->second->closing) {
         LOG_FILE("off: Erasing closing instance");
-        it = g_pHypreEyeInstances.erase(it);
+        it = g_pHypreViewInstances.erase(it);
       } else {
         ++it;
       }
     }
-    LOG_FILE(std::string("off: After cleanup, instances remaining=") + std::to_string(g_pHypreEyeInstances.size()));
+    LOG_FILE(std::string("off: After cleanup, instances remaining=") + std::to_string(g_pHypreViewInstances.size()));
     return {};
   }
 
@@ -185,7 +185,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     Debug::log(LOG, "[hyprview] 'on' command called with mode={}", (int)parsedArgs.collectionMode);
 
     // If already active, do nothing
-    if (!g_pHypreEyeInstances.empty()) {
+    if (!g_pHypreViewInstances.empty()) {
       Debug::log(LOG, "[hyprview] Overview already active, ignoring 'on' command");
       return {};
     }
@@ -196,7 +196,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     for (auto &monitor : g_pCompositor->m_monitors) {
       if (monitor->m_enabled && monitor->m_activeWorkspace) {
         Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
-        g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
+        g_pHypreViewInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
       }
     }
     renderingOverview = false;
@@ -207,15 +207,15 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   if (parsedArgs.action == DispatcherArgs::Action::TOGGLE) {
     Debug::log(LOG, "[hyprview] Toggle called with mode={}", (int)parsedArgs.collectionMode);
 
-    bool hasAnyOverview = !g_pHypreEyeInstances.empty();
+    bool hasAnyOverview = !g_pHypreViewInstances.empty();
 
     if (hasAnyOverview) {
       // Close all overviews on all monitors
       LOG_FILE("=== TOGGLE: CLOSING ALL OVERVIEWS ===");
-      LOG_FILE(std::string("Toggle: closing ") + std::to_string(g_pHypreEyeInstances.size()) + " instances");
-      Debug::log(LOG, "[hyprview] Toggle: closing all overviews ({} instances)", g_pHypreEyeInstances.size());
+      LOG_FILE(std::string("Toggle: closing ") + std::to_string(g_pHypreViewInstances.size()) + " instances");
+      Debug::log(LOG, "[hyprview] Toggle: closing all overviews ({} instances)", g_pHypreViewInstances.size());
 
-      for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+      for (auto &[monitor, instance] : g_pHypreViewInstances) {
         if (instance && !instance->closing) {
           LOG_FILE("Toggle: Calling close() on instance");
           instance->close();
@@ -228,15 +228,15 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       LOG_FILE("Toggle: removeAllOfType() done");
 
       LOG_FILE("Toggle: Cleaning up empty monitor instances");
-      for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end();) {
+      for (auto it = g_pHypreViewInstances.begin(); it != g_pHypreViewInstances.end();) {
         if (it->second && it->second->closing) {
           LOG_FILE("Toggle: Erasing closing instance");
-          it = g_pHypreEyeInstances.erase(it);
+          it = g_pHypreViewInstances.erase(it);
         } else {
           ++it;
         }
       }
-      LOG_FILE(std::string("Toggle: After cleanup, instances remaining=") + std::to_string(g_pHypreEyeInstances.size()));
+      LOG_FILE(std::string("Toggle: After cleanup, instances remaining=") + std::to_string(g_pHypreViewInstances.size()));
     } else {
       // Open overview on all enabled monitors with specified collection mode
       Debug::log(LOG, "[hyprview] Toggle: opening overviews on all monitors with mode={}", (int)parsedArgs.collectionMode);
@@ -245,7 +245,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       for (auto &monitor : g_pCompositor->m_monitors) {
         if (monitor->m_enabled && monitor->m_activeWorkspace) {
           Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
-          g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
+          g_pHypreViewInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
         }
       }
       renderingOverview = false;
@@ -377,17 +377,17 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   }
 
   static auto P = HyprlandAPI::registerCallbackDynamic(PHANDLE, "preRender", [](void *self, SCallbackInfo &info, std::any param) {
-    for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+    for (auto &[monitor, instance] : g_pHypreViewInstances) {
       if (instance)
         instance->onPreRender();
     }
 
     // Clean up closing instances
-    for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end();) {
+    for (auto it = g_pHypreViewInstances.begin(); it != g_pHypreViewInstances.end();) {
       if (it->second && it->second->closing) {
         LOG_FILE("preRender: Removing closing instance");
         g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
-        it = g_pHypreEyeInstances.erase(it);
+        it = g_pHypreViewInstances.erase(it);
       } else {
         ++it;
       }
@@ -422,7 +422,7 @@ APICALL EXPORT void PLUGIN_EXIT() {
 
   g_unloading = true;
 
-  g_pHypreEyeInstances.clear();
+  g_pHypreViewInstances.clear();
 
   g_pConfigManager->reload();
 }

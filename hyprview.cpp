@@ -18,7 +18,7 @@
 
 // Helper to find the CHyprView instance for a given animation variable
 CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
-  for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+  for (auto &[monitor, instance] : g_pHypreViewInstances) {
     if (instance && (instance->size.get() == thisptr.lock().get() || instance->pos.get() == thisptr.lock().get())) {
       return instance.get();
     }
@@ -34,18 +34,18 @@ static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thispt
 
 void removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
   LOG_FILE("=== removeOverview() CALLED ===");
-  LOG_FILE(std::string("removeOverview(): g_pHypreEyeInstances.size()=") + std::to_string(g_pHypreEyeInstances.size()));
+  LOG_FILE(std::string("removeOverview(): g_pHypreViewInstances.size()=") + std::to_string(g_pHypreViewInstances.size()));
 
   // Find and remove the instance for this animation
-  for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end(); ++it) {
+  for (auto it = g_pHypreViewInstances.begin(); it != g_pHypreViewInstances.end(); ++it) {
     if (it->second && (it->second->size.get() == thisptr.lock().get() || it->second->pos.get() == thisptr.lock().get())) {
       LOG_FILE("removeOverview(): Found matching instance, erasing");
-      g_pHypreEyeInstances.erase(it);
+      g_pHypreViewInstances.erase(it);
       LOG_FILE("removeOverview(): Instance erased");
       break;
     }
   }
-  LOG_FILE(std::string("removeOverview(): After erase, g_pHypreEyeInstances.size()=") + std::to_string(g_pHypreEyeInstances.size()));
+  LOG_FILE(std::string("removeOverview(): After erase, g_pHypreViewInstances.size()=") + std::to_string(g_pHypreViewInstances.size()));
   LOG_FILE("=== removeOverview() FINISHED ===");
 }
 
