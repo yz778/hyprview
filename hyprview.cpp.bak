@@ -549,7 +549,7 @@ void CHyprView::fullRender() {
   Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGINSIZE + PADDINGSIZE), 2.0 * (MARGINSIZE + PADDINGSIZE)};
 
   CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
-  CHyprOpenGLImpl::SRectRenderData data; data.round = 0; g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, 0.2), data);
+  g_pHyprOpenGL->renderRect(monitorBox, CColor(0, 0, 0, 0.2));
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 
