@@ -134,21 +134,21 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return false;
 
     switch (m_collectionMode) {
-      case EWindowCollectionMode::CURRENT_ONLY:
-        // Only current workspace
-        return windowWorkspace == activeWorkspace;
+    case EWindowCollectionMode::CURRENT_ONLY:
+      // Only current workspace
+      return windowWorkspace == activeWorkspace;
 
-      case EWindowCollectionMode::ALL_WORKSPACES:
-        // All workspaces on monitor, excluding special
-        return !windowWorkspace->m_isSpecialWorkspace;
+    case EWindowCollectionMode::ALL_WORKSPACES:
+      // All workspaces on monitor, excluding special
+      return !windowWorkspace->m_isSpecialWorkspace;
 
-      case EWindowCollectionMode::WITH_SPECIAL:
-        // Current workspace + special workspace
-        return windowWorkspace == activeWorkspace || windowWorkspace->m_isSpecialWorkspace;
+    case EWindowCollectionMode::WITH_SPECIAL:
+      // Current workspace + special workspace
+      return windowWorkspace == activeWorkspace || windowWorkspace->m_isSpecialWorkspace;
 
-      case EWindowCollectionMode::ALL_WITH_SPECIAL:
-        // All workspaces on monitor including special
-        return true;
+    case EWindowCollectionMode::ALL_WITH_SPECIAL:
+      // All workspaces on monitor including special
+      return true;
     }
     return false;
   };
@@ -243,7 +243,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     image.pWindow = window;
     image.originalPos = window->m_realPosition->value();
     image.originalSize = window->m_realSize->value();
-    image.originalWorkspace = originalWorkspaces[window];  // Save the original workspace
+    image.originalWorkspace = originalWorkspaces[window]; // Save the original workspace
 
     image.box = {(i % SIDE_LENGTH) * tileSize.x + (MARGIN + PADDING), (i / SIDE_LENGTH) * tileSize.y + (MARGIN + PADDING), tileRenderSize.x, tileRenderSize.y};
 

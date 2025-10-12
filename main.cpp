@@ -84,11 +84,14 @@ static void hkAddDamageB(void *thisptr, const pixman_region32_t *rg) {
 
 // Helper function to parse dispatcher arguments
 struct DispatcherArgs {
-  enum class Action { TOGGLE, ON, OFF, SELECT } action;
+  enum class Action { TOGGLE,
+                      ON,
+                      OFF,
+                      SELECT } action;
   EWindowCollectionMode collectionMode;
 };
 
-static DispatcherArgs parseDispatcherArgs(const std::string& arg) {
+static DispatcherArgs parseDispatcherArgs(const std::string &arg) {
   DispatcherArgs result;
   result.action = DispatcherArgs::Action::TOGGLE;
   result.collectionMode = EWindowCollectionMode::CURRENT_ONLY;

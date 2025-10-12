@@ -15,10 +15,10 @@ constexpr bool ENABLE_LOWRES = false;
 
 // Window collection modes
 enum class EWindowCollectionMode {
-  CURRENT_ONLY,     // Default: only current workspace windows
-  ALL_WORKSPACES,   // All workspaces on monitor (excluding special)
-  WITH_SPECIAL,     // Current workspace + special workspace
-  ALL_WITH_SPECIAL  // All workspaces + special workspace
+  CURRENT_ONLY,    // Default: only current workspace windows
+  ALL_WORKSPACES,  // All workspaces on monitor (excluding special)
+  WITH_SPECIAL,    // Current workspace + special workspace
+  ALL_WITH_SPECIAL // All workspaces + special workspace
 };
 
 class CMonitor;
@@ -83,7 +83,7 @@ private:
     CBox box;
     Vector2D originalPos;
     Vector2D originalSize;
-    PHLWORKSPACE originalWorkspace;  // Store original workspace for restoration
+    PHLWORKSPACE originalWorkspace; // Store original workspace for restoration
   };
 
   Vector2D lastMousePosLocal = Vector2D{};
