@@ -2,6 +2,10 @@
 
 `hyprview` is a Hyprland plugin that provides a GNOME-style workspace overview. It displays all windows from the current workspace in a grid, allowing you to easily see and switch between them.
 
+
+https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
+
+
 ## Features
 
 *   **Workspace Overview:** See all your open windows on the current workspace at a glance.
