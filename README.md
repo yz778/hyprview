@@ -108,9 +108,6 @@ You can customize the appearance and behavior of the overview by setting the fol
 ```ini
 # Example customization
 plugin:hyprview:margin = 20
-plugin:hyprview:padding = 15
-plugin:hyprview:bg_color = 0xFF222222
-plugin:hyprview:grid_color = 0xFF111111
 plugin:hyprview:active_border_color = 0xFFCA7815
 plugin:hyprview:inactive_border_color = 0x88c0c0c0
 plugin:hyprview:border_width = 5
@@ -122,10 +119,7 @@ plugin:hyprview:debug_log = 1
 
 | Variable                                | Type      | Description                                                                 | Default      |
 | ----------------------------------------- | ----------- | ----------------------------------------------------------------------------- | -------------- |
-| `plugin:hyprview:margin`                | int       | Space between grid slots.                                                   | `10`         |
-| `plugin:hyprview:padding`               | int       | Space inside grid slots before window content.                              | `10`         |
-| `plugin:hyprview:bg_color`              | int (hex) | Background color (between grid slots).                                      | `0xFF111111` |
-| `plugin:hyprview:grid_color`            | int (hex) | Grid slot background color (behind windows).                                | `0xFF000000` |
+| `plugin:hyprview:margin`                | int       | Margin around each grid tile.                                               | `10`         |
 | `plugin:hyprview:active_border_color`   | int (hex) | Border color for the currently focused window.                              | `0xFFCA7815` |
 | `plugin:hyprview:inactive_border_color` | int (hex) | Border color for inactive windows.                                          | `0x88c0c0c0` |
 | `plugin:hyprview:border_width`          | int       | Width of window borders in pixels.                                          | `5`          |

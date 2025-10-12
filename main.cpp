@@ -402,9 +402,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigKeyword(PHANDLE, "hyprview-gesture", ::hyprviewGestureKeyword, {});
 
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:margin", Hyprlang::INT{10});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:padding", Hyprlang::INT{10});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:bg_color", Hyprlang::INT{0xFF111111});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:grid_color", Hyprlang::INT{0xFF000000});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:gesture_distance", Hyprlang::INT{200});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:active_border_color", Hyprlang::INT{0xFFCA7815});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color", Hyprlang::INT{0x88c0c0c0});

@@ -71,12 +71,9 @@ private:
   CFramebuffer bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
 
-  int SIDE_LENGTH = 3;                                    // Grid columns
-  int GRID_ROWS = 3;                                      // Grid rows
-  int MARGIN = 15;                                        // Space between grid slots
-  int PADDING = 10;                                       // Space inside grid slots before window content
-  CHyprColor BG_COLOR = CHyprColor{0.1, 0.1, 0.1, 1.0};   // Background color
-  CHyprColor GRID_COLOR = CHyprColor{0.0, 0.0, 0.0, 1.0}; // Grid slot background color
+  int SIDE_LENGTH = 3; // Grid columns
+  int GRID_ROWS = 3;   // Grid rows
+  int MARGIN = 15;     // Margin around each grid tile
 
   CHyprColor ACTIVE_BORDER_COLOR;
   CHyprColor INACTIVE_BORDER_COLOR;

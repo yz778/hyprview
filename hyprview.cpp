@@ -150,14 +150,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}", (void *)origWindow.get());
 
   static auto *const *PMARGIN = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:margin")->getDataStaticPtr();
-  static auto *const *PPADDING = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:padding")->getDataStaticPtr();
-  static auto *const *PCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:bg_color")->getDataStaticPtr();
-  static auto *const *PGRIDCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:grid_color")->getDataStaticPtr();
 
   MARGIN = **PMARGIN;
-  PADDING = **PPADDING;
-  BG_COLOR = **PCOL;
-  GRID_COLOR = **PGRIDCOL;
 
   static auto *const *PACTIVEBORDERCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:active_border_color")->getDataStaticPtr();
   static auto *const *PINACTIVEBORDERCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color")->getDataStaticPtr();
@@ -267,7 +261,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   g_pHyprRenderer->makeEGLCurrent();
 
   Vector2D tileSize = {pMonitor->m_size.x / SIDE_LENGTH, pMonitor->m_size.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGIN + PADDING), 2.0 * (MARGIN + PADDING)};
+  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
 
   Debug::log(LOG,
              "[hyprview] Monitor size: {}x{}, Grid: {}x{}, Tile size: {}x{}, "
@@ -303,7 +297,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     image.originalSize = window->m_realSize->value();
     image.originalWorkspace = originalWorkspaces[window]; // Save the original workspace
 
-    image.box = {(i % SIDE_LENGTH) * tileSize.x + (MARGIN + PADDING), (i / SIDE_LENGTH) * tileSize.y + (MARGIN + PADDING), tileRenderSize.x, tileRenderSize.y};
+    image.box = {(i % SIDE_LENGTH) * tileSize.x + MARGIN, (i / SIDE_LENGTH) * tileSize.y + MARGIN, tileRenderSize.x, tileRenderSize.y};
 
     const auto RENDERSIZE = (window->m_realSize->value() * pMonitor->m_scale).floor();
     image.fb.alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y), pMonitor->m_output->state->state().drmFormat);
@@ -319,8 +313,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     window->m_realPosition->setValue(pMonitor->m_position);
 
     g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
-
-    g_pHyprOpenGL->clear(GRID_COLOR.stripA());
 
     // Now all windows should have valid surfaces since they're on the active workspace
     if (window && window->m_isMapped) {
@@ -494,8 +486,6 @@ void CHyprView::redrawID(int id, bool forcelowres) {
 
   g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
 
-  g_pHyprOpenGL->clear(GRID_COLOR.stripA());
-
   if (window->m_isMapped) {
     g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(), false, RENDER_PASS_MAIN, false, false);
   }
@@ -526,8 +516,8 @@ void CHyprView::onDamageReported() {
   Vector2D SIZE = size->value();
 
   Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGIN + PADDING), 2.0 * (MARGIN + PADDING)};
-  CBox texbox = CBox{(openedID % SIDE_LENGTH) * tileSize.x + (MARGIN + PADDING), (openedID / SIDE_LENGTH) * tileSize.y + (MARGIN + PADDING), tileRenderSize.x, tileRenderSize.y}.translate(pMonitor->m_position);
+  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
+  CBox texbox = CBox{(openedID % SIDE_LENGTH) * tileSize.x + MARGIN, (openedID / SIDE_LENGTH) * tileSize.y + MARGIN, tileRenderSize.x, tileRenderSize.y}.translate(pMonitor->m_position);
 
   damage();
 
@@ -707,12 +697,11 @@ void CHyprView::render() { g_pHyprRenderer->m_renderPass.add(makeUnique<CHyprVie
 
 void CHyprView::fullRender() {
   const auto MARGINSIZE = (closing ? (1.0 - size->getPercent()) : size->getPercent()) * MARGIN;
-  const auto PADDINGSIZE = (closing ? (1.0 - size->getPercent()) : size->getPercent()) * PADDING;
 
   Vector2D SIZE = size->value();
 
   Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGINSIZE + PADDINGSIZE), 2.0 * (MARGINSIZE + PADDINGSIZE)};
+  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGINSIZE, 2.0 * MARGINSIZE};
 
   // Render the captured background instead of a solid color
   if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
@@ -745,8 +734,8 @@ void CHyprView::fullRender() {
       newSize.x = newSize.y * textureAspect;
     }
 
-    const double cellX = x * tileSize.x + (MARGINSIZE + PADDINGSIZE);
-    const double cellY = y * tileSize.y + (MARGINSIZE + PADDINGSIZE);
+    const double cellX = x * tileSize.x + MARGINSIZE;
+    const double cellY = y * tileSize.y + MARGINSIZE;
     const double offsetX = (tileRenderSize.x - newSize.x) / 2.0;
     const double offsetY = (tileRenderSize.y - newSize.y) / 2.0;
 

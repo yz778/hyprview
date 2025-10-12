@@ -135,10 +135,7 @@ The plugin provides extensive customization through Hyprland's configuration sys
 
 ### Configuration Variables
 
-- `plugin:hyprview:margin`: Space between grid slots
-- `plugin:hyprview:padding`: Space inside grid slots before window content
-- `plugin:hyprview:bg_color`: Background color between grid slots (fallback when needed)
-- `plugin:hyprview:grid_color`: Grid slot background color
+- `plugin:hyprview:margin`: Margin around each grid tile
 - `plugin:hyprview:active_border_color`: Border color for focused window
 - `plugin:hyprview:inactive_border_color`: Border color for inactive windows
 - `plugin:hyprview:border_width`: Width of window borders
