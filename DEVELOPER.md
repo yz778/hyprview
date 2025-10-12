@@ -1,9 +1,5 @@
 # Hyprview Developer Guide
 
-## Overview
-
-`hyprview` is a Hyprland plugin that provides a GNOME-style overview functionality. It displays windows from the current workspace, all workspaces on a monitor, or includes special workspaces, organizing them in a grid for easy navigation.
-
 ## Architecture
 
 The plugin follows a modular architecture with the following main components:
@@ -30,20 +26,21 @@ This map associates each monitor with its corresponding overview instance, allow
 The `CHyprView` class is responsible for:
 
 1. **Window Collection and Management**:
+
    - Collects windows based on the specified `EWindowCollectionMode`
    - Temporarily moves windows to the active workspace for rendering
    - Maintains original window positions and workspaces
-
 2. **Grid Layout**:
+
    - Dynamically calculates grid size (2x1, 2x2, or 3xN) based on window count
    - Calculates tile positions and sizes for each window
-
 3. **Rendering Pipeline**:
+
    - Creates individual framebuffers for each window
    - Renders each window to its dedicated framebuffer
    - Provides animation support for opening/closing transitions
-
 4. **Input Handling**:
+
    - Mouse movement for window selection and focus
    - Mouse/touch events for window selection
    - Swipe gesture support for touchpad interactions
@@ -80,11 +77,13 @@ Implements Hyprland's `ITrackpadGesture` interface to support:
 The plugin modifies Hyprland's rendering behavior through strategic hooks:
 
 ### `renderWorkspace` Hook
+
 - Intercepts normal workspace rendering when overview is active
 - Replaces normal rendering with overview rendering pass
 - Prevents background windows from showing underneath the overview
 
 ### Damage Reporting Hooks
+
 - `addDamageA` and `addDamageB` hooks intercept damage reporting
 - Allow the overview to update only necessary regions
 - Ensure smooth animation performance
@@ -92,17 +91,20 @@ The plugin modifies Hyprland's rendering behavior through strategic hooks:
 ## Rendering Process
 
 ### Window Preparation
+
 1. **Window Collection**: Selects windows based on the current mode
 2. **Workspace Migration**: Temporarily moves all selected windows to the active workspace
 3. **Framebuffer Creation**: Creates individual framebuffers for each window
 4. **Pre-rendering**: Renders each window to its dedicated framebuffer
 
 ### Grid Layout Calculation
+
 1. **Dynamic Sizing**: Calculates grid dimensions based on window count
 2. **Position Calculation**: Determines positions and sizes for each window tile
 3. **Aspect Ratio Adjustment**: Maintains window aspect ratios within tiles
 
 ### Display Rendering
+
 1. **Background**: Renders a full-screen background to mask underlying windows
 2. **Border Drawing**: Draws borders around each window tile
 3. **Window Content**: Renders pre-captured window framebuffers
@@ -111,15 +113,18 @@ The plugin modifies Hyprland's rendering behavior through strategic hooks:
 ## Input Handling System
 
 ### Mouse Events
+
 - **Hover Detection**: Tracks mouse movement to determine which window is under cursor
 - **Focus Management**: Automatically focuses windows when hovered over
 - **Selection**: Allows selecting windows via mouse click
 
 ### Touch Events
+
 - **Touch Selection**: Supports touch-based window selection
 - **Gesture Integration**: Works alongside swipe gestures
 
 ### Gesture Support
+
 - **3-Finger Swipes**: Configurable direction-based gestures
 - **Animation Feedback**: Smooth transitions during gesture operations
 - **Distance Threshold**: Configurable swipe distance for triggering
@@ -129,9 +134,10 @@ The plugin modifies Hyprland's rendering behavior through strategic hooks:
 The plugin provides extensive customization through Hyprland's configuration system:
 
 ### Configuration Variables
+
 - `plugin:hyprview:margin`: Space between grid slots
 - `plugin:hyprview:padding`: Space inside grid slots before window content
-- `plugin:hyprview:bg_color`: Background color between grid slots
+- `plugin:hyprview:bg_color`: Background color between grid slots (fallback when needed)
 - `plugin:hyprview:grid_color`: Grid slot background color
 - `plugin:hyprview:active_border_color`: Border color for focused window
 - `plugin:hyprview:inactive_border_color`: Border color for inactive windows
@@ -145,12 +151,14 @@ The plugin provides extensive customization through Hyprland's configuration sys
 The plugin uses Hyprland's dispatcher system for command execution:
 
 ### Available Dispatchers
+
 - `hyprview:toggle`: Toggles the overview on/off
 - `hyprview:on`: Opens the overview
 - `hyprview:off`: Closes the overview
 - `hyprview:select`: Selects the currently hovered window
 
 ### Command Parameters
+
 - `all`: Includes all workspaces on the monitor
 - `special`: Includes special (scratchpad) workspaces
 - Combinations supported (e.g., `all,special`)
@@ -158,6 +166,7 @@ The plugin uses Hyprland's dispatcher system for command execution:
 ## Life Cycle Management
 
 ### Initialization
+
 1. **Constructor**: Sets up the overview for a specific monitor
 2. **Window Migration**: Moves windows to active workspace for rendering
 3. **Framebuffer Creation**: Pre-renders windows to framebuffers
@@ -165,6 +174,7 @@ The plugin uses Hyprland's dispatcher system for command execution:
 5. **Input Hooking**: Sets up mouse/touch event handlers
 
 ### Cleanup
+
 1. **Workspace Restoration**: Returns all windows to their original workspaces
 2. **Framebuffer Cleanup**: Frees allocated framebuffers
 3. **Hook Removal**: Unregisters input event handlers
@@ -175,10 +185,12 @@ The plugin uses Hyprland's dispatcher system for command execution:
 The plugin uses Hyprland's animation system for smooth transitions:
 
 ### Opening Animation
+
 - Scales from a point to full screen
 - Positioned based on the initially focused window
 
 ### Closing Animation
+
 - Scales from full screen back to the selected window
 - Can target any window in the grid based on user selection
 - Uses the window position as the final animation destination
@@ -186,14 +198,35 @@ The plugin uses Hyprland's animation system for smooth transitions:
 ## Memory Management
 
 ### Framebuffer Allocation
+
 - Individual framebuffers per window with appropriate sizing
+- Background framebuffer for seamless desktop integration
 - Automatic cleanup in destructor
 - Size adjustments when window sizes change
 
 ### Resource Tracking
+
 - Reference counting for window objects
 - Automatic cleanup of allocated resources
 - Prevention of memory leaks during overview lifecycle
+
+## Background Capture System
+
+### Seamless Background Integration
+
+The plugin implements a background capture system that provides a seamless experience by showing the original desktop background instead of a solid color:
+
+1. **Window Hiding**: Before creating the overview, all windows on the target monitor are temporarily hidden
+2. **Background Capture**: The original desktop background (wallpaper, etc.) is captured to a framebuffer
+3. **Window Restoration**: Windows are restored to their original visibility state
+4. **Background Rendering**: The captured background is used as the overview backdrop
+
+### Implementation Details
+
+- `captureBackground()` method in `CHyprView` class handles the background capture process
+- Temporarily sets `m_hidden = true` on relevant windows
+- Preserves original visibility states for proper restoration
+- Uses the captured background texture in the `fullRender()` method
 
 ## Multi-Monitor Support
 
@@ -215,11 +248,13 @@ The plugin includes several safeguards:
 ## Debugging Features
 
 ### Logging System
+
 - Configurable debug logging to `/tmp/hyprview.log`
 - Timestamped log entries for performance analysis
 - Detailed state tracking for troubleshooting
 
 ### Debug Variables
+
 - `debug_log` configuration option to enable/disable logging
 - Strategic log points throughout the codebase
 

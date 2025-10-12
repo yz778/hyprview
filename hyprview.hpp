@@ -9,6 +9,10 @@
 #include <unordered_map>
 #include <vector>
 
+// Forward declaration for hooks
+class CFunctionHook;
+extern CFunctionHook *g_pRenderWorkspaceHook;
+
 // saves on resources, but is a bit broken rn with blur.
 // hyprland's fault, but cba to fix.
 constexpr bool ENABLE_LOWRES = false;
@@ -62,6 +66,10 @@ private:
   void redrawAll(bool forcelowres = false);
   void onWorkspaceChange();
   void fullRender();
+  void captureBackground();
+
+  CFramebuffer bgFramebuffer; // Store the captured background
+  bool bgCaptured = false;    // Flag to track if background is captured
 
   int SIDE_LENGTH = 3;                                    // Grid columns
   int GRID_ROWS = 3;                                      // Grid rows

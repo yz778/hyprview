@@ -71,6 +71,10 @@ CHyprView::~CHyprView() {
   images.clear();
   LOG_FILE("~CHyprView(): images.clear() done");
 
+  // Also clear the background framebuffer
+  bgFramebuffer.release();
+  LOG_FILE("~CHyprView(): bgFramebuffer released");
+
   g_pInputManager->unsetCursorImage();
   LOG_FILE("~CHyprView(): unsetCursorImage() done");
 
@@ -79,7 +83,61 @@ CHyprView::~CHyprView() {
   LOG_FILE("=== ~CHyprView() DESTRUCTOR FINISHED ===");
 }
 
+void CHyprView::captureBackground() {
+  auto monitor = pMonitor.lock();
+  if (!monitor)
+    return;
+
+  const auto MONITOR_SIZE = monitor->m_size;
+  const auto FORMAT = monitor->m_output->state->state().drmFormat;
+
+  // Allocate the background framebuffer
+  bgFramebuffer.alloc(MONITOR_SIZE.x, MONITOR_SIZE.y, FORMAT);
+
+  // Get current workspace
+  auto activeWorkspace = monitor->m_activeWorkspace;
+  if (!activeWorkspace)
+    return;
+
+  // Temporarily hide all windows on this monitor
+  std::vector<PHLWINDOW> hiddenWindows;
+  std::vector<bool> originalHiddenStates;
+
+  for (auto &w : g_pCompositor->m_windows) {
+    if (!w->m_isMapped || w->isHidden() || w->m_monitor.lock() != monitor)
+      continue;
+
+    // Hide windows from current and special workspaces temporarily
+    if (w->m_workspace == activeWorkspace || w->m_workspace->m_isSpecialWorkspace) {
+      hiddenWindows.push_back(w);
+      originalHiddenStates.push_back(w->m_hidden);
+      w->m_hidden = true;
+    }
+  }
+
+  // Capture the background with hidden windows
+  CRegion fullRegion{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y};
+
+  g_pHyprRenderer->beginRender(monitor, fullRegion, RENDER_MODE_FULL_FAKE, nullptr, &bgFramebuffer);
+
+  // Render the workspace with hidden windows (showing just the wallpaper/background)
+  g_pHyprRenderer->renderWorkspace(monitor, activeWorkspace, std::chrono::steady_clock::now(),
+                                   CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
+
+  g_pHyprRenderer->endRender();
+
+  // Restore all windows to original hidden state
+  for (size_t i = 0; i < hiddenWindows.size(); ++i) {
+    hiddenWindows[i]->m_hidden = originalHiddenStates[i];
+  }
+
+  bgCaptured = true;
+}
+
 CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_, EWindowCollectionMode mode) : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_), m_collectionMode(mode) {
+
+  // Capture the background BEFORE moving windows for the overview
+  captureBackground();
 
   // Block rendering until we finish moving windows to active workspace
   // This ensures the overview layer is created AFTER workspace migration
@@ -656,10 +714,13 @@ void CHyprView::fullRender() {
   Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
   Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGINSIZE + PADDINGSIZE), 2.0 * (MARGINSIZE + PADDINGSIZE)};
 
-  CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
-  CHyprOpenGLImpl::SRectRenderData bgData;
-  // Render fully opaque background to mask windows underneath
-  g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0f, 0.0f, 0.0f, 1.0f), bgData);
+  // Render the captured background instead of a solid color
+  if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
+    CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
+    CRegion damage{0, 0, INT16_MAX, INT16_MAX};
+    g_pHyprOpenGL->renderTextureInternal(bgFramebuffer.getTexture(), monitorBox,
+                                         {.damage = &damage, .a = 1.0, .round = 0});
+  }
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 
