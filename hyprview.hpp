@@ -30,7 +30,6 @@ class CHyprView;
 
 // Forward declare friend functions
 CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
-void removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
@@ -50,8 +49,6 @@ public:
 
   // close without a selection
   void close();
-  void closeImmediate();
-  void closeWithoutFocus();
   void selectHoveredWindow();
 
   bool blockOverviewRendering = false;
@@ -119,7 +116,6 @@ private:
 
   friend class CHyprViewPassElement;
   friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
-  friend void ::removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor

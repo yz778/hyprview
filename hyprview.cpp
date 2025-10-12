@@ -32,22 +32,7 @@ static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thispt
     instance->damage();
 }
 
-void removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
-  LOG_FILE("=== removeOverview() CALLED ===");
-  LOG_FILE(std::string("removeOverview(): g_pHyprViewInstances.size()=") + std::to_string(g_pHyprViewInstances.size()));
-
-  // Find and remove the instance for this animation
-  for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end(); ++it) {
-    if (it->second && (it->second->size.get() == thisptr.lock().get() || it->second->pos.get() == thisptr.lock().get())) {
-      LOG_FILE("removeOverview(): Found matching instance, erasing");
-      g_pHyprViewInstances.erase(it);
-      LOG_FILE("removeOverview(): Instance erased");
-      break;
-    }
-  }
-  LOG_FILE(std::string("removeOverview(): After erase, g_pHyprViewInstances.size()=") + std::to_string(g_pHyprViewInstances.size()));
-  LOG_FILE("=== removeOverview() FINISHED ===");
-}
+// Removed: removeOverview() - no longer needed without animated closing
 
 CHyprView::~CHyprView() {
   LOG_FILE("=== ~CHyprView() DESTRUCTOR CALLED ===");
@@ -343,8 +328,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   if (numWindows > 0)
     currentid = 0;
 
+  int gridX = currentid % SIDE_LENGTH;
+  int gridY = currentid / SIDE_LENGTH;
+
   g_pAnimationManager->createAnimation(pMonitor->m_size * pMonitor->m_size / tileSize, size, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-  g_pAnimationManager->createAnimation((-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{currentid % SIDE_LENGTH, currentid / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize), pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation((-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize), pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
 
   size->setUpdateCallback(damageMonitor);
   pos->setUpdateCallback(damageMonitor);
@@ -381,7 +369,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
     if (!images.empty()) {
       int x = lastMousePosLocal.x / monitorSize.x * SIDE_LENGTH;
-      int y = lastMousePosLocal.y / monitorSize.y * SIDE_LENGTH;
+      int y = lastMousePosLocal.y / monitorSize.y * GRID_ROWS;
       int tileIndex = x + y * SIDE_LENGTH;
 
       if (tileIndex >= 0 && tileIndex < (int)images.size()) {
@@ -415,9 +403,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     info.cancelled = true;
 
     selectHoveredWindow();
-
-    // Use immediate close and let the dispatcher handle cleanup
-    closeImmediate();
+    close();
   };
 
   auto onMouseAxis = [this](void *self, SCallbackInfo &info, std::any param) {
@@ -447,7 +433,7 @@ void CHyprView::selectHoveredWindow() {
     return;
 
   int x = lastMousePosLocal.x / pMonitor->m_size.x * SIDE_LENGTH;
-  int y = lastMousePosLocal.y / pMonitor->m_size.y * SIDE_LENGTH;
+  int y = lastMousePosLocal.y / pMonitor->m_size.y * GRID_ROWS;
   closeOnID = x + y * SIDE_LENGTH;
 
   if (closeOnID >= (int)images.size())
@@ -548,152 +534,44 @@ void CHyprView::close() {
     return;
   }
 
-  const int ID = closeOnID == -1 ? openedID : closeOnID;
-  LOG_FILE(std::string("close(): starting - ID=") + std::to_string(ID) + ", closeOnID=" + std::to_string(closeOnID) + ", openedID=" + std::to_string(openedID) + ", images.size()=" + std::to_string(images.size()));
-  Debug::log(LOG,
-             "[hyprview] close(): starting close, ID={}, closeOnID={}, "
-             "openedID={}, images.size()={}",
-             ID, closeOnID, openedID, images.size());
-
-  // Handle case when there are no windows (images is empty)
-  if (images.empty()) {
-    LOG_FILE("close(): No windows on this monitor, closing without animation");
-    Debug::log(LOG, "[hyprview] close(): No windows on this monitor, closing "
-                    "without animation");
-    closing = true;
-    LOG_FILE("close(): Empty images case - set closing=true (no callback)");
-    return;
-  }
-
-  const int clampedID = std::clamp(ID, 0, (int)images.size() - 1);
-  LOG_FILE(std::string("close(): clampedID=") + std::to_string(clampedID));
-
-  if (clampedID >= 0 && clampedID < (int)images.size()) {
-    LOG_FILE("close(): Accessing images[clampedID]");
-    const auto &TILE = images[clampedID];
-    LOG_FILE("close(): Got TILE reference");
-
-    Vector2D tileSize = (pMonitor->m_size / SIDE_LENGTH);
-    LOG_FILE("close(): Calculated tileSize");
-
-    *size = pMonitor->m_size * pMonitor->m_size / tileSize;
-    *pos = (-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{clampedID % SIDE_LENGTH, clampedID / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
-    LOG_FILE("close(): Set size and pos animations");
-
-    size->setCallbackOnEnd(removeOverview);
-    LOG_FILE("close(): Set animation callback");
-
-    closing = true;
-    LOG_FILE("close(): Set closing=true");
-
-    // STEP 1: Restore ALL windows to their original workspaces FIRST
-    // This ensures that when we focus a window, the workspace switch happens naturally
-    LOG_FILE("close(): Restoring all windows to original workspaces");
-    Debug::log(LOG, "[hyprview] close(): Restoring all windows to original workspaces");
-    for (const auto &image : images) {
-      auto window = image.pWindow.lock();
-      if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
-        Debug::log(LOG, "[hyprview] close(): Restoring window '{}' from workspace {} to {}",
-                   window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
-        window->moveToWorkspace(image.originalWorkspace);
-      }
-    }
-    LOG_FILE("close(): Workspace restoration complete");
-
-    // STEP 2: Now focus the selected window (workspace will follow automatically)
-    if (userExplicitlySelected) {
-      LOG_FILE("close(): User explicitly selected window");
-      auto window = TILE.pWindow.lock();
-      if (window && window->m_isMapped) {
-        LOG_FILE(std::string("close(): Focusing window: ") + window->m_title);
-        Debug::log(LOG, "[hyprview] close(): User selected window, focusing and bringing to top");
-        g_pCompositor->focusWindow(window);
-        LOG_FILE("close(): Called focusWindow()");
-
-        g_pKeybindManager->alterZOrder("top");
-        LOG_FILE("close(): Called alterZOrder(top)");
-      } else {
-        LOG_FILE("close(): Selected window is null or not mapped");
-        Debug::log(LOG, "[hyprview] close(): Selected window is null or not mapped");
-      }
-    } else {
-      LOG_FILE("close(): No explicit selection, restoring original focus");
-      auto origWindow = originalFocusedWindow.lock();
-      if (origWindow && origWindow->m_isMapped) {
-        LOG_FILE(std::string("close(): Restoring focus to: ") + origWindow->m_title);
-        Debug::log(LOG, "[hyprview] close(): No explicit selection, restoring "
-                        "original window focus");
-        g_pCompositor->focusWindow(origWindow);
-        LOG_FILE("close(): Restored focus");
-      } else {
-        LOG_FILE("close(): Original window no longer valid");
-        Debug::log(LOG, "[hyprview] close(): Original window no longer valid, "
-                        "not changing focus");
-      }
-    }
-    LOG_FILE("close(): Finished focus handling");
-  } else {
-    LOG_FILE("close(): clampedID out of range - no windows to select");
-    size->setCallbackOnEnd(removeOverview);
-    closing = true;
-  }
-  LOG_FILE("=== CLOSE() FINISHED ===");
-}
-
-void CHyprView::closeImmediate() {
-  LOG_FILE("=== CLOSEIMMEDIATE() CALLED ===");
-
-  if (closing) {
-    LOG_FILE("closeImmediate(): already closing, returning");
-    return;
-  }
-
   closing = true;
 
   // STEP 1: Restore ALL windows to their original workspaces FIRST
   // This ensures that when we focus a window, the workspace switch happens naturally
-  LOG_FILE("closeImmediate(): Restoring all windows to original workspaces");
-  Debug::log(LOG, "[hyprview] closeImmediate(): Restoring all windows to original workspaces");
+  LOG_FILE("close(): Restoring all windows to original workspaces");
+  Debug::log(LOG, "[hyprview] close(): Restoring all windows to original workspaces");
   for (const auto &image : images) {
     auto window = image.pWindow.lock();
     if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
-      Debug::log(LOG, "[hyprview] closeImmediate(): Restoring window '{}' from workspace {} to {}",
+      Debug::log(LOG, "[hyprview] close(): Restoring window '{}' from workspace {} to {}",
                  window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
       window->moveToWorkspace(image.originalWorkspace);
     }
   }
-  LOG_FILE("closeImmediate(): Workspace restoration complete");
+  LOG_FILE("close(): Workspace restoration complete");
 
   // STEP 2: Now focus the selected window (workspace will follow automatically)
   if (userExplicitlySelected && closeOnID >= 0 && closeOnID < (int)images.size()) {
-    LOG_FILE("closeImmediate(): User explicitly selected window");
+    LOG_FILE("close(): User explicitly selected window");
     const auto &TILE = images[closeOnID];
     auto window = TILE.pWindow.lock();
     if (window && window->m_isMapped) {
-      LOG_FILE(std::string("closeImmediate(): Focusing window: ") + window->m_title);
-      Debug::log(LOG, "[hyprview] closeImmediate(): User selected window, focusing and bringing to top");
+      LOG_FILE(std::string("close(): Focusing window: ") + window->m_title);
+      Debug::log(LOG, "[hyprview] close(): User selected window, focusing and bringing to top");
       g_pCompositor->focusWindow(window);
       g_pKeybindManager->alterZOrder("top");
     }
   } else {
-    LOG_FILE("closeImmediate(): No explicit selection, restoring original focus");
+    LOG_FILE("close(): No explicit selection, restoring original focus");
     auto origWindow = originalFocusedWindow.lock();
     if (origWindow && origWindow->m_isMapped) {
-      LOG_FILE(std::string("closeImmediate(): Restoring focus to: ") + origWindow->m_title);
-      Debug::log(LOG, "[hyprview] closeImmediate(): Restoring original window focus");
+      LOG_FILE(std::string("close(): Restoring focus to: ") + origWindow->m_title);
+      Debug::log(LOG, "[hyprview] close(): Restoring original window focus");
       g_pCompositor->focusWindow(origWindow);
     }
   }
 
-  LOG_FILE("=== CLOSEIMMEDIATE() FINISHED ===");
-}
-
-void CHyprView::closeWithoutFocus() {
-  if (closing)
-    return;
-
-  size->setCallbackOnEnd(removeOverview);
-  closing = true;
+  LOG_FILE("=== CLOSE() FINISHED ===");
 }
 
 void CHyprView::onPreRender() {
@@ -806,8 +684,11 @@ void CHyprView::onSwipeUpdate(double delta) {
 
   Vector2D tileSize = {pMonitor->m_size.x / SIDE_LENGTH, pMonitor->m_size.y / GRID_ROWS};
 
+  int gridX = WORKSPACE_FOCUS_ID % SIDE_LENGTH;
+  int gridY = WORKSPACE_FOCUS_ID / SIDE_LENGTH;
+
   const auto SIZEMAX = pMonitor->m_size * pMonitor->m_size / tileSize;
-  const auto POSMAX = (-((pMonitor->m_size / (double)SIDE_LENGTH) * Vector2D{WORKSPACE_FOCUS_ID % SIDE_LENGTH, WORKSPACE_FOCUS_ID / SIDE_LENGTH}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
+  const auto POSMAX = (-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
 
   const auto SIZEMIN = pMonitor->m_size;
   const auto POSMIN = Vector2D{0, 0};
