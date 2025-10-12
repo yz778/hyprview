@@ -13,12 +13,12 @@ The plugin follows a modular architecture with the following main components:
 1. **`CHyprView`**: The main class representing an overview instance for a single monitor
 2. **`CHyprViewPassElement`**: Render pass element for drawing the overview
 3. **`CViewGesture`**: Handles trackpad gesture interactions
-4. **Global state**: Managed through `g_pHypreViewInstances` map
+4. **Global state**: Managed through `g_pHyprViewInstances` map
 
 ### Global State Management
 
 ```cpp
-inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHypreViewInstances;
+inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHyprViewInstances;
 ```
 
 This map associates each monitor with its corresponding overview instance, allowing for per-monitor overview functionality.
