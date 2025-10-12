@@ -13,6 +13,14 @@
 // hyprland's fault, but cba to fix.
 constexpr bool ENABLE_LOWRES = false;
 
+// Window collection modes
+enum class EWindowCollectionMode {
+  CURRENT_ONLY,     // Default: only current workspace windows
+  ALL_WORKSPACES,   // All workspaces on monitor (excluding special)
+  WITH_SPECIAL,     // Current workspace + special workspace
+  ALL_WITH_SPECIAL  // All workspaces + special workspace
+};
+
 class CMonitor;
 class CHyprView;
 
@@ -22,7 +30,7 @@ void removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
-  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false);
+  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
   ~CHyprView();
 
   void render();
@@ -75,6 +83,7 @@ private:
     CBox box;
     Vector2D originalPos;
     Vector2D originalSize;
+    PHLWORKSPACE originalWorkspace;  // Store original workspace for restoration
   };
 
   Vector2D lastMousePosLocal = Vector2D{};
@@ -89,6 +98,7 @@ private:
   PHLWINDOWREF lastHoveredWindow;      // Track last hovered window for focus
 
   PHLWORKSPACE startedOn;
+  EWindowCollectionMode m_collectionMode;
 
   PHLANIMVAR<Vector2D> size;
   PHLANIMVAR<Vector2D> pos;

@@ -44,8 +44,13 @@ std::optional<CBox> CHyprViewPassElement::boundingBox() {
 }
 
 CRegion CHyprViewPassElement::opaqueRegion() {
-  // Return empty region to allow the background/wallpaper layer to show through
-  // This creates the masking effect where real windows are hidden and wallpaper
-  // is visible
-  return CRegion{};
+  // Return the full monitor region to block windows underneath
+  // The overview layer needs to be opaque to mask the real windows
+  if (!instance || !instance->pMonitor.lock())
+    return CRegion{};
+
+  auto monitor = instance->pMonitor.lock();
+  // Return the full monitor box as an opaque region
+  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, monitor->m_size.x, monitor->m_size.y};
+  return CRegion{monitorBox};
 }

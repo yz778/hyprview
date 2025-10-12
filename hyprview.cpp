@@ -53,6 +53,18 @@ CHyprView::~CHyprView() {
   LOG_FILE("=== ~CHyprView() DESTRUCTOR CALLED ===");
   LOG_FILE(std::string("~CHyprView(): images.size()=") + std::to_string(images.size()));
 
+  // Restore all windows to their original workspaces
+  LOG_FILE("~CHyprView(): Restoring windows to original workspaces");
+  for (const auto &image : images) {
+    auto window = image.pWindow.lock();
+    if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
+      Debug::log(LOG, "[hyprview] Restoring window '{}' from workspace {} to {}",
+                 window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+      window->moveToWorkspace(image.originalWorkspace);
+    }
+  }
+  LOG_FILE("~CHyprView(): Workspace restoration complete");
+
   g_pHyprRenderer->makeEGLCurrent();
   LOG_FILE("~CHyprView(): makeEGLCurrent() done");
 
@@ -67,7 +79,11 @@ CHyprView::~CHyprView() {
   LOG_FILE("=== ~CHyprView() DESTRUCTOR FINISHED ===");
 }
 
-CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_) : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_) {
+CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_, EWindowCollectionMode mode) : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_), m_collectionMode(mode) {
+
+  // Block rendering until we finish moving windows to active workspace
+  // This ensures the overview layer is created AFTER workspace migration
+  blockOverviewRendering = true;
 
   originalFocusedWindow = g_pCompositor->m_lastWindow;
   userExplicitlySelected = false;
@@ -104,34 +120,69 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
 
   Debug::log(LOG,
              "[hyprview] CHyprView(): Collecting windows for monitor '{}', "
-             "workspace ID {}",
-             pMonitor->m_description, activeWorkspace->m_id);
+             "workspace ID {}, mode={}",
+             pMonitor->m_description, activeWorkspace->m_id, (int)m_collectionMode);
+
+  // Lambda to check if window should be included based on collection mode
+  auto shouldIncludeWindow = [&](PHLWINDOW w) -> bool {
+    auto windowWorkspace = w->m_workspace;
+    if (!windowWorkspace)
+      return false;
+
+    auto windowMonitor = w->m_monitor.lock();
+    if (!windowMonitor || windowMonitor != pMonitor.lock())
+      return false;
+
+    switch (m_collectionMode) {
+      case EWindowCollectionMode::CURRENT_ONLY:
+        // Only current workspace
+        return windowWorkspace == activeWorkspace;
+
+      case EWindowCollectionMode::ALL_WORKSPACES:
+        // All workspaces on monitor, excluding special
+        return !windowWorkspace->m_isSpecialWorkspace;
+
+      case EWindowCollectionMode::WITH_SPECIAL:
+        // Current workspace + special workspace
+        return windowWorkspace == activeWorkspace || windowWorkspace->m_isSpecialWorkspace;
+
+      case EWindowCollectionMode::ALL_WITH_SPECIAL:
+        // All workspaces on monitor including special
+        return true;
+    }
+    return false;
+  };
 
   for (auto &w : g_pCompositor->m_windows) {
     if (!w->m_isMapped || w->isHidden())
       continue;
 
-    auto windowWorkspace = w->m_workspace;
-    if (!windowWorkspace || windowWorkspace != activeWorkspace)
+    if (!shouldIncludeWindow(w))
       continue;
 
-    auto windowMonitor = w->m_monitor.lock();
-    if (!windowMonitor || windowMonitor != pMonitor.lock()) {
-      Debug::log(LOG,
-                 "[hyprview] Skipping window '{}' - on different monitor "
-                 "(window monitor: '{}', our monitor: '{}')",
-                 w->m_title, windowMonitor ? windowMonitor->m_description : "null", pMonitor->m_description);
-      continue;
-    }
-
-    Debug::log(LOG, "[hyprview] Adding window '{}' from monitor '{}', workspace {}", w->m_title, pMonitor->m_description, activeWorkspace->m_id);
+    Debug::log(LOG, "[hyprview] Adding window '{}' from monitor '{}', workspace {}", w->m_title, pMonitor->m_description, w->m_workspace->m_id);
     windowsToRender.push_back(w);
   }
 
-  std::stable_sort(windowsToRender.begin(), windowsToRender.end(), [](const PHLWINDOW &a, const PHLWINDOW &b) {
-    if (a->m_realPosition->value().y != b->m_realPosition->value().y)
-      return a->m_realPosition->value().y < b->m_realPosition->value().y;
-    return a->m_realPosition->value().x < b->m_realPosition->value().x;
+  // Sort windows: current workspace first, then by X then Y
+  std::stable_sort(windowsToRender.begin(), windowsToRender.end(), [&activeWorkspace](const PHLWINDOW &a, const PHLWINDOW &b) {
+    auto wsA = a->m_workspace;
+    auto wsB = b->m_workspace;
+
+    // Priority 1: Current workspace first
+    bool aIsCurrent = (wsA == activeWorkspace);
+    bool bIsCurrent = (wsB == activeWorkspace);
+    if (aIsCurrent != bIsCurrent)
+      return aIsCurrent; // Current workspace windows come first
+
+    // Priority 2: Within same workspace group, sort by workspace ID
+    if (wsA != wsB)
+      return wsA->m_id < wsB->m_id;
+
+    // Priority 3: Within same workspace, sort by X then Y (changed from Y then X)
+    if (a->m_realPosition->value().x != b->m_realPosition->value().x)
+      return a->m_realPosition->value().x < b->m_realPosition->value().x;
+    return a->m_realPosition->value().y < b->m_realPosition->value().y;
   });
 
   Debug::log(LOG, "[hyprview] CHyprView(): Collected {} windows for monitor '{}'", windowsToRender.size(), pMonitor->m_description);
@@ -169,6 +220,22 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
 
   int currentid = -1;
 
+  // Save original workspaces BEFORE moving
+  std::unordered_map<PHLWINDOW, PHLWORKSPACE> originalWorkspaces;
+  for (auto &window : windowsToRender) {
+    originalWorkspaces[window] = window->m_workspace;
+  }
+
+  // Move windows to active workspace so they have valid surfaces for rendering
+  for (auto &window : windowsToRender) {
+    if (window->m_workspace != activeWorkspace) {
+      Debug::log(LOG, "[hyprview] Moving window '{}' from workspace {} to {}",
+                 window->m_title, window->m_workspace->m_id, activeWorkspace->m_id);
+      window->moveToWorkspace(activeWorkspace);
+    }
+  }
+
+  // Render all windows to framebuffers
   for (size_t i = 0; i < numWindows; ++i) {
     CHyprView::SWindowImage &image = images[i];
     auto &window = windowsToRender[i];
@@ -176,6 +243,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
     image.pWindow = window;
     image.originalPos = window->m_realPosition->value();
     image.originalSize = window->m_realSize->value();
+    image.originalWorkspace = originalWorkspaces[window];  // Save the original workspace
 
     image.box = {(i % SIDE_LENGTH) * tileSize.x + (MARGIN + PADDING), (i / SIDE_LENGTH) * tileSize.y + (MARGIN + PADDING), tileRenderSize.x, tileRenderSize.y};
 
@@ -185,12 +253,18 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
     CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
 
     const auto REALPOS = window->m_realPosition->value();
+
+    Debug::log(LOG, "[hyprview] Rendering window '{}' - workspace: {}, surfaceCount: {}",
+               window->m_title, window->m_workspace->m_id, window->surfacesCount());
+
+    // Temporarily move window to monitor position for rendering
     window->m_realPosition->setValue(pMonitor->m_position);
 
     g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
 
     g_pHyprOpenGL->clear(GRID_COLOR.stripA());
 
+    // Now all windows should have valid surfaces since they're on the active workspace
     if (window && window->m_isMapped) {
       g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(), false, RENDER_PASS_MAIN, false, false);
     }
@@ -198,6 +272,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
     g_pHyprOpenGL->m_renderData.blockScreenShader = true;
     g_pHyprRenderer->endRender();
 
+    // Restore original position
     window->m_realPosition->setValue(REALPOS);
   }
 
@@ -298,6 +373,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_)
   mouseButtonHook = g_pHookSystem->hookDynamic("mouseButton", onCursorSelect);
   mouseAxisHook = g_pHookSystem->hookDynamic("mouseAxis", onMouseAxis);
   touchDownHook = g_pHookSystem->hookDynamic("touchDown", onCursorSelect);
+
+  // NOW unblock rendering - workspace migration is complete
+  // The overview layer will be created on the next render pass
+  blockOverviewRendering = false;
+  Debug::log(LOG, "[hyprview] CHyprView(): Constructor complete, unblocked rendering");
 }
 
 void CHyprView::selectHoveredWindow() {
@@ -446,13 +526,27 @@ void CHyprView::close() {
     closing = true;
     LOG_FILE("close(): Set closing=true");
 
+    // STEP 1: Restore ALL windows to their original workspaces FIRST
+    // This ensures that when we focus a window, the workspace switch happens naturally
+    LOG_FILE("close(): Restoring all windows to original workspaces");
+    Debug::log(LOG, "[hyprview] close(): Restoring all windows to original workspaces");
+    for (const auto &image : images) {
+      auto window = image.pWindow.lock();
+      if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
+        Debug::log(LOG, "[hyprview] close(): Restoring window '{}' from workspace {} to {}",
+                   window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+        window->moveToWorkspace(image.originalWorkspace);
+      }
+    }
+    LOG_FILE("close(): Workspace restoration complete");
+
+    // STEP 2: Now focus the selected window (workspace will follow automatically)
     if (userExplicitlySelected) {
       LOG_FILE("close(): User explicitly selected window");
       auto window = TILE.pWindow.lock();
       if (window && window->m_isMapped) {
         LOG_FILE(std::string("close(): Focusing window: ") + window->m_title);
-        Debug::log(LOG, "[hyprview] close(): User selected window, focusing "
-                        "and bringing to top");
+        Debug::log(LOG, "[hyprview] close(): User selected window, focusing and bringing to top");
         g_pCompositor->focusWindow(window);
         LOG_FILE("close(): Called focusWindow()");
 
@@ -496,10 +590,25 @@ void CHyprView::closeImmediate() {
 
   closing = true;
 
-  // Handle window focus before cleanup
+  // STEP 1: Restore ALL windows to their original workspaces FIRST
+  // This ensures that when we focus a window, the workspace switch happens naturally
+  LOG_FILE("closeImmediate(): Restoring all windows to original workspaces");
+  Debug::log(LOG, "[hyprview] closeImmediate(): Restoring all windows to original workspaces");
+  for (const auto &image : images) {
+    auto window = image.pWindow.lock();
+    if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
+      Debug::log(LOG, "[hyprview] closeImmediate(): Restoring window '{}' from workspace {} to {}",
+                 window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+      window->moveToWorkspace(image.originalWorkspace);
+    }
+  }
+  LOG_FILE("closeImmediate(): Workspace restoration complete");
+
+  // STEP 2: Now focus the selected window (workspace will follow automatically)
   if (userExplicitlySelected && closeOnID >= 0 && closeOnID < (int)images.size()) {
     LOG_FILE("closeImmediate(): User explicitly selected window");
-    auto window = images[closeOnID].pWindow.lock();
+    const auto &TILE = images[closeOnID];
+    auto window = TILE.pWindow.lock();
     if (window && window->m_isMapped) {
       LOG_FILE(std::string("closeImmediate(): Focusing window: ") + window->m_title);
       Debug::log(LOG, "[hyprview] closeImmediate(): User selected window, focusing and bringing to top");
@@ -548,7 +657,9 @@ void CHyprView::fullRender() {
   Vector2D tileRenderSize = tileSize - Vector2D{2.0 * (MARGINSIZE + PADDINGSIZE), 2.0 * (MARGINSIZE + PADDINGSIZE)};
 
   CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
-  g_pHyprOpenGL->renderRect(monitorBox, CColor(0, 0, 0, 0.2));
+  CHyprOpenGLImpl::SRectRenderData bgData;
+  // Render fully opaque background to mask windows underneath
+  g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0f, 0.0f, 0.0f, 1.0f), bgData);
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 

@@ -82,6 +82,50 @@ static void hkAddDamageB(void *thisptr, const pixman_region32_t *rg) {
   it->second->onDamageReported();
 }
 
+// Helper function to parse dispatcher arguments
+struct DispatcherArgs {
+  enum class Action { TOGGLE, ON, OFF, SELECT } action;
+  EWindowCollectionMode collectionMode;
+};
+
+static DispatcherArgs parseDispatcherArgs(const std::string& arg) {
+  DispatcherArgs result;
+  result.action = DispatcherArgs::Action::TOGGLE;
+  result.collectionMode = EWindowCollectionMode::CURRENT_ONLY;
+
+  // Convert to lowercase for case-insensitive comparison
+  std::string lowerArg = arg;
+  std::transform(lowerArg.begin(), lowerArg.end(), lowerArg.begin(), ::tolower);
+
+  // Determine action
+  if (lowerArg.empty() || lowerArg.find("toggle") != std::string::npos) {
+    result.action = DispatcherArgs::Action::TOGGLE;
+  } else if (lowerArg.find("on") != std::string::npos) {
+    result.action = DispatcherArgs::Action::ON;
+  } else if (lowerArg.find("off") != std::string::npos || lowerArg.find("close") != std::string::npos || lowerArg.find("disable") != std::string::npos) {
+    result.action = DispatcherArgs::Action::OFF;
+  } else if (lowerArg == "select") {
+    result.action = DispatcherArgs::Action::SELECT;
+  }
+
+  // Check for "all" and "special" keywords (order-independent)
+  bool hasAll = (lowerArg.find("all") != std::string::npos);
+  bool hasSpecial = (lowerArg.find("special") != std::string::npos);
+
+  // Determine collection mode
+  if (hasAll && hasSpecial) {
+    result.collectionMode = EWindowCollectionMode::ALL_WITH_SPECIAL;
+  } else if (hasAll) {
+    result.collectionMode = EWindowCollectionMode::ALL_WORKSPACES;
+  } else if (hasSpecial) {
+    result.collectionMode = EWindowCollectionMode::WITH_SPECIAL;
+  } else {
+    result.collectionMode = EWindowCollectionMode::CURRENT_ONLY;
+  }
+
+  return result;
+}
+
 static SDispatchResult onHyprviewDispatcher(std::string arg) {
   Debug::log(LOG, "[hyprview] Dispatcher called with arg='{}'", arg);
 
@@ -91,8 +135,11 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       return {.success = false, .error = "already swiping"};
   }
 
-  if (arg == "select") {
-    // Select hovered window on the monitor where the cursor is
+  // Parse arguments
+  DispatcherArgs parsedArgs = parseDispatcherArgs(arg);
+
+  // Handle SELECT action
+  if (parsedArgs.action == DispatcherArgs::Action::SELECT) {
     auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
     if (PMONITOR) {
       auto it = g_pHypreEyeInstances.find(PMONITOR);
@@ -104,9 +151,58 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     return {};
   }
 
-  // Treat empty arg as "toggle" for convenience
-  if (arg == "toggle" || arg.empty()) {
-    Debug::log(LOG, "[hyprview] Toggle called");
+  // Handle OFF action
+  if (parsedArgs.action == DispatcherArgs::Action::OFF) {
+    LOG_FILE("=== OFF/CLOSE/DISABLE CALLED ===");
+    for (auto &[monitor, instance] : g_pHypreEyeInstances) {
+      if (instance) {
+        LOG_FILE("off: Calling close() on instance");
+        instance->close();
+      }
+    }
+
+    LOG_FILE("off: Calling removeAllOfType()");
+    g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
+
+    LOG_FILE("off: Cleaning up empty monitor instances");
+    for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end();) {
+      if (it->second && it->second->closing) {
+        LOG_FILE("off: Erasing closing instance");
+        it = g_pHypreEyeInstances.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    LOG_FILE(std::string("off: After cleanup, instances remaining=") + std::to_string(g_pHypreEyeInstances.size()));
+    return {};
+  }
+
+  // Handle ON action
+  if (parsedArgs.action == DispatcherArgs::Action::ON) {
+    Debug::log(LOG, "[hyprview] 'on' command called with mode={}", (int)parsedArgs.collectionMode);
+
+    // If already active, do nothing
+    if (!g_pHypreEyeInstances.empty()) {
+      Debug::log(LOG, "[hyprview] Overview already active, ignoring 'on' command");
+      return {};
+    }
+
+    // Open overview with specified mode
+    Debug::log(LOG, "[hyprview] Opening overview with mode={}", (int)parsedArgs.collectionMode);
+    renderingOverview = true;
+    for (auto &monitor : g_pCompositor->m_monitors) {
+      if (monitor->m_enabled && monitor->m_activeWorkspace) {
+        Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
+        g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
+      }
+    }
+    renderingOverview = false;
+    return {};
+  }
+
+  // Handle TOGGLE action
+  if (parsedArgs.action == DispatcherArgs::Action::TOGGLE) {
+    Debug::log(LOG, "[hyprview] Toggle called with mode={}", (int)parsedArgs.collectionMode);
 
     bool hasAnyOverview = !g_pHypreEyeInstances.empty();
 
@@ -139,14 +235,14 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       }
       LOG_FILE(std::string("Toggle: After cleanup, instances remaining=") + std::to_string(g_pHypreEyeInstances.size()));
     } else {
-      // Open overview on all enabled monitors
-      Debug::log(LOG, "[hyprview] Toggle: opening overviews on all monitors");
+      // Open overview on all enabled monitors with specified collection mode
+      Debug::log(LOG, "[hyprview] Toggle: opening overviews on all monitors with mode={}", (int)parsedArgs.collectionMode);
 
       renderingOverview = true;
       for (auto &monitor : g_pCompositor->m_monitors) {
         if (monitor->m_enabled && monitor->m_activeWorkspace) {
-          Debug::log(LOG, "[hyprview] Creating overview for monitor {}", monitor->m_description);
-          g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace);
+          Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
+          g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
         }
       }
       renderingOverview = false;
@@ -155,41 +251,6 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     return {};
   }
 
-  if (arg == "off" || arg == "close" || arg == "disable") {
-    LOG_FILE("=== OFF/CLOSE/DISABLE CALLED ===");
-    for (auto &[monitor, instance] : g_pHypreEyeInstances) {
-      if (instance) {
-        LOG_FILE("off: Calling close() on instance");
-        instance->close();
-      }
-    }
-
-    LOG_FILE("off: Calling removeAllOfType()");
-    g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
-
-    LOG_FILE("off: Cleaning up empty monitor instances");
-    for (auto it = g_pHypreEyeInstances.begin(); it != g_pHypreEyeInstances.end();) {
-      if (it->second && it->second->closing) {
-        LOG_FILE("off: Erasing closing instance");
-        it = g_pHypreEyeInstances.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    LOG_FILE(std::string("off: After cleanup, instances remaining=") + std::to_string(g_pHypreEyeInstances.size()));
-    return {};
-  }
-
-  if (!g_pHypreEyeInstances.empty())
-    return {};
-
-  renderingOverview = true;
-  for (auto &monitor : g_pCompositor->m_monitors) {
-    if (monitor->m_enabled && monitor->m_activeWorkspace) {
-      g_pHypreEyeInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace);
-    }
-  }
-  renderingOverview = false;
   return {};
 }
 
@@ -331,8 +392,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   });
 
   HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:toggle", ::onHyprviewDispatcher);
+  HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:on", ::onHyprviewDispatcher);
 
-  Debug::log(LOG, "[hyprview] Plugin initialized, dispatcher 'hyprview:toggle' registered");
+  Debug::log(LOG, "[hyprview] Plugin initialized, dispatchers 'hyprview:toggle' and 'hyprview:on' registered");
 
   HyprlandAPI::addConfigKeyword(PHANDLE, "hyprview-gesture", ::hyprviewGestureKeyword, {});
 
