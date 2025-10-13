@@ -39,7 +39,7 @@ bool CHyprViewPassElement::needsLiveBlur() { return false; }
 bool CHyprViewPassElement::needsPrecomputeBlur() { return false; }
 
 std::optional<CBox> CHyprViewPassElement::boundingBox() {
-  // Return nullopt to indicate full screen rendering across all monitors
+  // Return nullopt for unbounded rendering
   return std::nullopt;
 }
 
@@ -50,7 +50,8 @@ CRegion CHyprViewPassElement::opaqueRegion() {
     return CRegion{};
 
   auto monitor = instance->pMonitor.lock();
-  // Return the full monitor box as an opaque region
-  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, monitor->m_size.x, monitor->m_size.y};
+  // Return the full monitor box as an opaque region using full physical size
+  Vector2D fullMonitorSize = monitor->m_pixelSize;
+  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, fullMonitorSize.x, fullMonitorSize.y};
   return CRegion{monitorBox};
 }

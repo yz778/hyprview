@@ -57,6 +57,7 @@ public:
   PHLMONITORREF pMonitor;
   bool m_isSwiping = false;
   bool closing = false;
+  bool swipe = false;
 
 private:
   void redrawID(int id, bool forcelowres = false);
@@ -76,6 +77,13 @@ private:
   CHyprColor INACTIVE_BORDER_COLOR;
   int BORDER_WIDTH;
   int BORDER_RADIUS;
+  float BG_DIM;
+
+  // Workspace indicator configuration
+  bool WORKSPACE_INDICATOR_ENABLED;
+  int WORKSPACE_INDICATOR_FONT_SIZE;
+  std::string WORKSPACE_INDICATOR_POSITION;
+  float WORKSPACE_INDICATOR_BG_OPACITY;
 
   bool damageDirty = false;
 
@@ -111,7 +119,6 @@ private:
   SP<HOOK_CALLBACK_FN> touchMoveHook;
   SP<HOOK_CALLBACK_FN> touchDownHook;
 
-  bool swipe = false;
   bool swipeWasCommenced = false;
 
   friend class CHyprViewPassElement;

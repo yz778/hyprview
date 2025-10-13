@@ -394,6 +394,61 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     }
   });
 
+  // Block workspace gestures when overview is active
+  static auto gestureBeginHook = HyprlandAPI::registerCallbackDynamic(PHANDLE, "swipeBegin", [](void *self, SCallbackInfo &info, std::any param) {
+    // If any overview is active and it's not the hyprview gesture itself, cancel the gesture
+    if (!g_pHyprViewInstances.empty()) {
+      // Check if this is coming from a hyprview gesture - if so, allow it
+      bool isHyprviewGesture = false;
+      for (auto &[monitor, instance] : g_pHyprViewInstances) {
+        if (instance && instance->swipe) {
+          isHyprviewGesture = true;
+          break;
+        }
+      }
+
+      // If overview is active but this isn't a hyprview gesture, block it
+      if (!isHyprviewGesture) {
+        Debug::log(LOG, "[hyprview] Blocking workspace gesture while overview is active");
+        info.cancelled = true;
+      }
+    }
+  });
+
+  static auto gestureUpdateHook = HyprlandAPI::registerCallbackDynamic(PHANDLE, "swipeUpdate", [](void *self, SCallbackInfo &info, std::any param) {
+    // Block gesture updates when overview is active (unless it's the hyprview gesture)
+    if (!g_pHyprViewInstances.empty()) {
+      bool isHyprviewGesture = false;
+      for (auto &[monitor, instance] : g_pHyprViewInstances) {
+        if (instance && instance->swipe) {
+          isHyprviewGesture = true;
+          break;
+        }
+      }
+
+      if (!isHyprviewGesture) {
+        info.cancelled = true;
+      }
+    }
+  });
+
+  static auto gestureEndHook = HyprlandAPI::registerCallbackDynamic(PHANDLE, "swipeEnd", [](void *self, SCallbackInfo &info, std::any param) {
+    // Block gesture end when overview is active (unless it's the hyprview gesture)
+    if (!g_pHyprViewInstances.empty()) {
+      bool isHyprviewGesture = false;
+      for (auto &[monitor, instance] : g_pHyprViewInstances) {
+        if (instance && instance->swipe) {
+          isHyprviewGesture = true;
+          break;
+        }
+      }
+
+      if (!isHyprviewGesture) {
+        info.cancelled = true;
+      }
+    }
+  });
+
   HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:toggle", ::onHyprviewDispatcher);
   HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:on", ::onHyprviewDispatcher);
 
@@ -407,8 +462,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color", Hyprlang::INT{0x88c0c0c0});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:border_width", Hyprlang::INT{5});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:border_radius", Hyprlang::INT{5});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:bg_dim", Hyprlang::FLOAT{0.4});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_enabled", Hyprlang::INT{1});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_font_size", Hyprlang::INT{28});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_position", Hyprlang::STRING{""});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity", Hyprlang::FLOAT{0.85});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:debug_log", Hyprlang::INT{0});
-
   HyprlandAPI::reloadConfig();
 
   return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.2"};
@@ -416,10 +475,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
 APICALL EXPORT void PLUGIN_EXIT() {
   g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
-
   g_unloading = true;
-
   g_pHyprViewInstances.clear();
-
   g_pConfigManager->reload();
 }
