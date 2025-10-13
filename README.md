@@ -3,6 +3,7 @@
 `hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in an adaptive grid layout for easy navigation.
 
 The grid layout adapts to the number of windows:
+
 - **1 window:** Displayed at 80% screen size, centered
 - **2 windows:** 2×1 grid
 - **3-4 windows:** 2×2 grid
@@ -15,12 +16,16 @@ https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
 * **Workspace Overview:** See all your open windows on the current workspace at a glance.
 * **Multi-Workspace Modes:** View windows from the current workspace, all workspaces on the monitor, or include special (scratchpad) workspaces.
+* **Workspace Indicator:** Each window tile shows its workspace ID (displayed as "wsid:N") in a configurable position with customizable size and styling. The indicator color automatically matches the window's border color (active or inactive) for easy navigation across multiple workspaces.
 * **Window Selection:** Hover to focus and click to select a window, automatically closing the overview.
 * **Trackpad Gestures:** Use swipe gestures to open and close the overview.
+* **Gesture Conflict Prevention:** Automatically blocks workspace gestures when overview is active to prevent accidental workspace switches.
 * **Smooth Animations:** Animated transitions when opening/closing the overview.
-* **Multi-monitor Support:** Provides a separate overview for each monitor.
-* **Customizable Appearance:** Change colors, borders, margins, and radii.
+* **Multi-monitor Support:** Provides a separate overview for each monitor with proper scaling and positioning.
+* **Customizable Appearance:** Change colors, borders, margins, background dimming, and radii.
 * **Active Window Highlighting:** Distinguished border color for the currently focused window.
+* **Background Dimming:** Configurable dark overlay when overview is active for clear visual distinction.
+* **Centered Grid Layout:** Window grid is centered on screen for balanced visual appearance.
 * **Focus Restoration:** Properly restores window focus when closing the overview.
 
 ## Install with hyprpm
@@ -107,24 +112,18 @@ The syntax is `hyprview-gesture = <fingers>,<direction>[,mod:<modmask>][,scale:<
 
 You can customize the appearance and behavior of the overview by setting the following variables in your `hyprland.conf`:
 
-```ini
-# Example customization
-plugin:hyprview:margin = 20
-plugin:hyprview:active_border_color = 0xFFCA7815
-plugin:hyprview:inactive_border_color = 0x88c0c0c0
-plugin:hyprview:border_width = 5
-plugin:hyprview:border_radius = 5
-plugin:hyprview:gesture_distance = 250
-plugin:hyprview:debug_log = 1
-```
 
-
-| Variable                                | Type      | Description                                                                 | Default      |
-| ----------------------------------------- | ----------- | ----------------------------------------------------------------------------- | -------------- |
-| `plugin:hyprview:margin`                | int       | Margin around each grid tile.                                               | `10`         |
-| `plugin:hyprview:active_border_color`   | int (hex) | Border color for the currently focused window.                              | `0xFFCA7815` |
-| `plugin:hyprview:inactive_border_color` | int (hex) | Border color for inactive windows.                                          | `0x88c0c0c0` |
-| `plugin:hyprview:border_width`          | int       | Width of window borders in pixels.                                          | `5`          |
-| `plugin:hyprview:border_radius`         | int       | Radius of window borders in pixels.                                         | `5`          |
-| `plugin:hyprview:gesture_distance`      | int       | The swipe distance required for the gesture.                                | `200`        |
-| `plugin:hyprview:debug_log`             | int       | Enable debug logging to`/tmp/hyprview.log` (`0` = disabled, `1` = enabled). | `0`          |
+| Variable                                         | Type      | Description                                                                   | Default      |
+| -------------------------------------------------- | ----------- | ------------------------------------------------------------------------------- | -------------- |
+| `plugin:hyprview:active_border_color`            | int (hex) | Border color for the currently focused window.                                | `0xFFCA7815` |
+| `plugin:hyprview:bg_dim`                         | float     | Opacity of the background dim overlay (0.0 = no dim, 1.0 = fully black).      | `0.4`        |
+| `plugin:hyprview:border_radius`                  | int       | Radius of window borders in pixels.                                           | `5`          |
+| `plugin:hyprview:border_width`                   | int       | Width of window borders in pixels.                                            | `5`          |
+| `plugin:hyprview:gesture_distance`               | int       | The swipe distance required for the gesture.                                  | `200`        |
+| `plugin:hyprview:inactive_border_color`          | int (hex) | Border color for inactive windows.                                            | `0x88c0c0c0` |
+| `plugin:hyprview:margin`                         | int       | Margin around each grid tile.                                                 | `10`         |
+| `plugin:hyprview:workspace_indicator_enabled`    | int       | Show workspace indicator on window tiles (`0` = disabled, `1` = enabled).     | `1`          |
+| `plugin:hyprview:workspace_indicator_font_size`  | int       | Font size for workspace indicator in points.                                  | `28`         |
+| `plugin:hyprview:workspace_indicator_position`   | string    | Position: `top-left`, `top-right`, `bottom-left`, `bottom-right` (empty = top-right). | (empty)      |
+| `plugin:hyprview:workspace_indicator_bg_opacity` | float     | Opacity of the indicator background (0.0 = transparent, 1.0 = opaque).        | `0.85`       |
+| `plugin:hyprview:debug_log`                      | int       | Enable debug logging to `/tmp/hyprview.log` (`0` = disabled, `1` = enabled).  | `0`          |

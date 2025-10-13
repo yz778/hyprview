@@ -77,6 +77,13 @@ private:
   CHyprColor INACTIVE_BORDER_COLOR;
   int BORDER_WIDTH;
   int BORDER_RADIUS;
+  float BG_DIM;
+
+  // Workspace indicator configuration
+  bool WORKSPACE_INDICATOR_ENABLED;
+  int WORKSPACE_INDICATOR_FONT_SIZE;
+  std::string WORKSPACE_INDICATOR_POSITION;
+  float WORKSPACE_INDICATOR_BG_OPACITY;
 
   bool damageDirty = false;
 

@@ -93,6 +93,14 @@ The plugin modifies Hyprland's rendering behavior through strategic hooks:
 - Allow the overview to update only necessary regions
 - Ensure smooth animation performance
 
+### Gesture Event Hooks
+
+- **`swipeBegin` Hook**: Blocks workspace gestures when overview is active
+- **`swipeUpdate` Hook**: Prevents gesture updates from affecting workspaces during overview
+- **`swipeEnd` Hook**: Cancels workspace gesture completion when overview is active
+- **Gesture Detection**: Checks if the gesture is hyprview-initiated to allow overview gestures while blocking workspace gestures
+- **Benefits**: Prevents accidental workspace switches and provides cleaner gesture interaction
+
 ## Rendering Process
 
 ### Window Preparation
@@ -112,15 +120,27 @@ The grid layout adapts intelligently to the number of windows:
    - 3-4 windows: 2×2 balanced grid
    - 5-9 windows: 3×3 grid
    - 10+ windows: 4×N grid with dynamic row count
-2. **Position Calculation**: Determines positions and sizes for each window tile
-3. **Aspect Ratio Adjustment**: Maintains window aspect ratios within tiles
+2. **Grid Centering**:
+   - Calculates actual grid dimensions based on the number of windows
+   - Computes horizontal and vertical offsets to center the grid on screen
+   - Applies offsets to all cell positions for balanced visual appearance
+3. **Position Calculation**: Determines positions and sizes for each window tile
+4. **Aspect Ratio Adjustment**: Maintains window aspect ratios within tiles
 
 ### Display Rendering
 
-1. **Background**: Renders a full-screen background to mask underlying windows
-2. **Border Drawing**: Draws borders around each window tile
-3. **Window Content**: Renders pre-captured window framebuffers
-4. **Animation**: Applies size and position animations
+1. **Background Capture**: Captures the desktop wallpaper/background before showing overview
+2. **Background Rendering**: Renders the captured background texture with configurable dimming overlay
+3. **Dim Overlay**: Applies a configurable dark overlay (default 40% opacity) for visual distinction
+4. **Workspace Indicators**: Renders workspace ID (as "wsid:N") on each window tile with fully configurable appearance:
+   - Position: Configurable corner placement (top-left, top-right, bottom-left, bottom-right), defaults to top-right if empty/unset
+   - Font Size: Adjustable size in points for better visibility at different scales (default: 28pt)
+   - Color: Automatically matches the window's border color (active windows use active border color, inactive windows use inactive border color)
+   - Background: Semi-transparent dark background with configurable opacity for contrast (default: 0.85)
+   - Can be completely disabled if not needed (set `workspace_indicator_enabled` to 0)
+5. **Border Drawing**: Draws borders around each window tile with active/inactive color distinction
+6. **Window Content**: Renders pre-captured window framebuffers with aspect ratio preservation
+7. **Animation**: Applies size and position animations during open/close transitions
 
 ## Input Handling System
 
@@ -140,6 +160,7 @@ The grid layout adapts intelligently to the number of windows:
 - **3-Finger Swipes**: Configurable direction-based gestures
 - **Animation Feedback**: Smooth transitions during gesture operations
 - **Distance Threshold**: Configurable swipe distance for triggering
+- **Gesture Conflict Prevention**: Automatically blocks workspace gestures when overview is active to prevent accidental workspace switches
 
 ## Configuration System
 
@@ -147,13 +168,24 @@ The plugin provides extensive customization through Hyprland's configuration sys
 
 ### Configuration Variables
 
+#### Layout and Appearance
 - `plugin:hyprview:margin`: Margin around each grid tile
 - `plugin:hyprview:active_border_color`: Border color for focused window
 - `plugin:hyprview:inactive_border_color`: Border color for inactive windows
 - `plugin:hyprview:border_width`: Width of window borders
 - `plugin:hyprview:border_radius`: Radius of window borders
+- `plugin:hyprview:bg_dim`: Opacity of the background dim overlay (0.0 = no dim, 1.0 = fully black)
+
+#### Workspace Indicator
+- `plugin:hyprview:workspace_indicator_enabled`: Enable/disable workspace indicator display on window tiles (0 = disabled, 1 = enabled)
+- `plugin:hyprview:workspace_indicator_font_size`: Font size for workspace indicator in points
+- `plugin:hyprview:workspace_indicator_position`: Position of indicator (`top-left`, `top-right`, `bottom-left`, `bottom-right`). Empty string defaults to top-right.
+- `plugin:hyprview:workspace_indicator_bg_opacity`: Opacity of the indicator background (0.0 = transparent, 1.0 = opaque)
+
+Note: The workspace indicator text color automatically matches the window's border color (active or inactive).
+
+#### Interaction
 - `plugin:hyprview:gesture_distance`: Swipe distance for gestures
-- `plugin:hyprview:debug_log`: Enable debug logging
 
 ## Dispatcher System
 
@@ -244,6 +276,7 @@ The plugin supports per-monitor overview functionality:
 1. **Independent Instances**: Each monitor can have its own overview state
 2. **Synchronized Actions**: Toggle commands affect all monitors simultaneously
 3. **Monitor-Specific Rendering**: Each overview renders only windows relevant to its monitor
+4. **Physical Resolution**: Uses `monitor->m_pixelSize` instead of `monitor->m_size` for accurate rendering on scaled/multi-monitor setups
 
 ## Error Handling and Recovery
 
@@ -261,11 +294,6 @@ The plugin includes several safeguards:
 - Configurable debug logging to `/tmp/hyprview.log`
 - Timestamped log entries for performance analysis
 - Detailed state tracking for troubleshooting
-
-### Debug Variables
-
-- `debug_log` configuration option to enable/disable logging
-- Strategic log points throughout the codebase
 
 ## Customization Points
 

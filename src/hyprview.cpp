@@ -143,11 +143,33 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   static auto *const *PINACTIVEBORDERCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color")->getDataStaticPtr();
   static auto *const *PBORDERWIDTH = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:border_width")->getDataStaticPtr();
   static auto *const *PBORDERRADIUS = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:border_radius")->getDataStaticPtr();
+  static auto *const *PBGDIM = (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:bg_dim")->getDataStaticPtr();
+  static auto *const *PWORKSPACEINDICATORENABLED = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_enabled")->getDataStaticPtr();
+  static auto *const *PWORKSPACEINDICATORFONTSIZE = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_font_size")->getDataStaticPtr();
+  static auto PWORKSPACEINDICATORPOSITION_VAL = HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_position");
+  static auto *const *PWORKSPACEINDICATORBGOPACITY = (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")->getDataStaticPtr();
 
   ACTIVE_BORDER_COLOR = **PACTIVEBORDERCOL;
   INACTIVE_BORDER_COLOR = **PINACTIVEBORDERCOL;
   BORDER_WIDTH = **PBORDERWIDTH;
   BORDER_RADIUS = **PBORDERRADIUS;
+  BG_DIM = **PBGDIM;
+  WORKSPACE_INDICATOR_ENABLED = **PWORKSPACEINDICATORENABLED != 0;
+  WORKSPACE_INDICATOR_FONT_SIZE = **PWORKSPACEINDICATORFONTSIZE;
+  WORKSPACE_INDICATOR_BG_OPACITY = **PWORKSPACEINDICATORBGOPACITY;
+  WORKSPACE_INDICATOR_POSITION = "";
+
+  try {
+    if (PWORKSPACEINDICATORPOSITION_VAL) {
+      if (auto strPtr = (Hyprlang::STRING const *)PWORKSPACEINDICATORPOSITION_VAL->getDataStaticPtr()) {
+        if (*strPtr) {
+          WORKSPACE_INDICATOR_POSITION = *strPtr;
+        }
+      }
+    }
+  } catch (...) {
+    // Keep default on any exception
+  }
 
   std::vector<PHLWINDOW> windowsToRender;
 
@@ -611,8 +633,7 @@ void CHyprView::fullRender() {
 
     // Add a dim overlay when overview is active (even with no windows)
     // This makes it clear we're in overview mode vs just viewing desktop
-    double dimAlpha = 0.4; // 40% dark overlay
-    g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, dimAlpha), {});
+    g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, BG_DIM), {});
   }
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
@@ -682,32 +703,45 @@ void CHyprView::fullRender() {
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
     g_pHyprOpenGL->renderTextureInternal(images[i].fb.getTexture(), windowBox, {.damage = &damage, .a = 1.0, .round = BORDER_RADIUS});
 
-    // Render workspace number in top-left corner of the tile
+    // Render workspace number indicator (if enabled)
     auto window = images[i].pWindow.lock();
-    if (window && images[i].originalWorkspace) {
+    if (WORKSPACE_INDICATOR_ENABLED && window && images[i].originalWorkspace) {
       int workspaceID = images[i].originalWorkspace->m_id;
-      std::string workspaceText = std::to_string(workspaceID);
-
-      // Create text texture with bright red color, 48pt font (larger and bolder)
-      auto textTexture = g_pHyprOpenGL->renderText(workspaceText, CHyprColor(1.0, 0.2, 0.2, 1.0), 48, false, "sans-serif");
+      std::string workspaceText = "wsid:" + std::to_string(workspaceID);
+      // Use border color based on whether window is active
+      const auto &INDICATOR_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+      auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR, WORKSPACE_INDICATOR_FONT_SIZE, false, "sans-serif");
 
       if (textTexture) {
-        // Position text in top-left corner with some padding
         double textPadding = 15.0;
-        double textX = borderBox.x + textPadding;
-        double textY = borderBox.y + textPadding;
+        double textX, textY;
 
-        // Scale text size appropriately - larger scale for better visibility
+        // Calculate position based on configured position
+        if (WORKSPACE_INDICATOR_POSITION == "top-left") {
+          textX = borderBox.x + textPadding;
+          textY = borderBox.y + textPadding;
+        } else if (WORKSPACE_INDICATOR_POSITION == "bottom-left") {
+          textX = borderBox.x + textPadding;
+          textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+        } else if (WORKSPACE_INDICATOR_POSITION == "bottom-right") {
+          textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+          textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+        } else {
+          textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+          textY = borderBox.y + textPadding;
+        }
+
+        // Scale text size appropriately
         double textWidth = textTexture->m_size.x * 0.8;
         double textHeight = textTexture->m_size.y * 0.8;
 
         CBox textBox = {textX, textY, textWidth, textHeight};
 
-        // Render more opaque dark background for text with better contrast
+        // Render background for text with configured opacity
         CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
         CHyprOpenGLImpl::SRectRenderData bgData;
         bgData.round = 8;
-        g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, 0.85), bgData);
+        g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY), bgData);
 
         // Render the text on top
         g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
