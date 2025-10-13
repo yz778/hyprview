@@ -57,6 +57,7 @@ public:
   PHLMONITORREF pMonitor;
   bool m_isSwiping = false;
   bool closing = false;
+  bool swipe = false;
 
 private:
   void redrawID(int id, bool forcelowres = false);
@@ -111,7 +112,6 @@ private:
   SP<HOOK_CALLBACK_FN> touchMoveHook;
   SP<HOOK_CALLBACK_FN> touchDownHook;
 
-  bool swipe = false;
   bool swipeWasCommenced = false;
 
   friend class CHyprViewPassElement;

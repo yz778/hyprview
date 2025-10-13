@@ -73,10 +73,11 @@ void CHyprView::captureBackground() {
   if (!monitor)
     return;
 
-  const auto MONITOR_SIZE = monitor->m_size;
+  // Capture background at full monitor size to avoid recursive layers
+  const auto MONITOR_SIZE = monitor->m_pixelSize;
   const auto FORMAT = monitor->m_output->state->state().drmFormat;
 
-  // Allocate the background framebuffer
+  // Allocate the background framebuffer at full size
   bgFramebuffer.alloc(MONITOR_SIZE.x, MONITOR_SIZE.y, FORMAT);
 
   // Get current workspace
@@ -257,7 +258,9 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->makeEGLCurrent();
 
-  Vector2D tileSize = {pMonitor->m_size.x / SIDE_LENGTH, pMonitor->m_size.y / GRID_ROWS};
+  // Use m_pixelSize for full monitor dimensions at native resolution
+  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+  Vector2D tileSize = {fullMonitorSize.x / SIDE_LENGTH, fullMonitorSize.y / GRID_ROWS};
   Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
 
   Debug::log(LOG,
@@ -331,14 +334,14 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   int gridX = currentid % SIDE_LENGTH;
   int gridY = currentid / SIDE_LENGTH;
 
-  g_pAnimationManager->createAnimation(pMonitor->m_size * pMonitor->m_size / tileSize, size, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-  g_pAnimationManager->createAnimation((-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize), pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation(fullMonitorSize * fullMonitorSize / tileSize, size, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation((-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (fullMonitorSize / tileSize), pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
 
   size->setUpdateCallback(damageMonitor);
   pos->setUpdateCallback(damageMonitor);
 
   if (!swipe) {
-    *size = pMonitor->m_size;
+    *size = fullMonitorSize;
     *pos = {0, 0};
   }
 
@@ -357,19 +360,19 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is actually on this monitor
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D monitorSize = pMonitor->m_size;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
     // Only handle if mouse is on this monitor
-    if (globalMousePos.x < monitorPos.x || globalMousePos.x >= monitorPos.x + monitorSize.x ||
-        globalMousePos.y < monitorPos.y || globalMousePos.y >= monitorPos.y + monitorSize.y) {
+    if (globalMousePos.x < monitorPos.x || globalMousePos.x >= monitorPos.x + fullMonitorSize.x ||
+        globalMousePos.y < monitorPos.y || globalMousePos.y >= monitorPos.y + fullMonitorSize.y) {
       return; // Mouse is on a different monitor
     }
 
     lastMousePosLocal = globalMousePos - monitorPos;
 
     if (!images.empty()) {
-      int x = lastMousePosLocal.x / monitorSize.x * SIDE_LENGTH;
-      int y = lastMousePosLocal.y / monitorSize.y * GRID_ROWS;
+      int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
+      int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
       int tileIndex = x + y * SIDE_LENGTH;
 
       if (tileIndex >= 0 && tileIndex < (int)images.size()) {
@@ -432,8 +435,9 @@ void CHyprView::selectHoveredWindow() {
   if (closing)
     return;
 
-  int x = lastMousePosLocal.x / pMonitor->m_size.x * SIDE_LENGTH;
-  int y = lastMousePosLocal.y / pMonitor->m_size.y * GRID_ROWS;
+  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+  int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
+  int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
   closeOnID = x + y * SIDE_LENGTH;
 
   if (closeOnID >= (int)images.size())
@@ -600,10 +604,15 @@ void CHyprView::fullRender() {
 
   // Render the captured background instead of a solid color
   if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
-    CBox monitorBox = {0, 0, pMonitor->m_size.x, pMonitor->m_size.y};
+    CBox monitorBox = {0, 0, SIZE.x, SIZE.y};
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
     g_pHyprOpenGL->renderTextureInternal(bgFramebuffer.getTexture(), monitorBox,
                                          {.damage = &damage, .a = 1.0, .round = 0});
+
+    // Add a dim overlay when overview is active (even with no windows)
+    // This makes it clear we're in overview mode vs just viewing desktop
+    double dimAlpha = 0.4; // 40% dark overlay
+    g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, dimAlpha), {});
   }
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
@@ -629,14 +638,26 @@ void CHyprView::fullRender() {
       newSize.x = newSize.y * textureAspect;
     }
 
-    // For single window, center it on screen; otherwise use grid positioning
+    // Center the grid on screen
     double cellX, cellY;
     if (images.size() == 1) {
+      // Single window: center it
       cellX = (SIZE.x - tileRenderSize.x) / 2.0;
       cellY = (SIZE.y - tileRenderSize.y) / 2.0;
     } else {
-      cellX = x * tileSize.x + MARGINSIZE;
-      cellY = y * tileSize.y + MARGINSIZE;
+      // Multiple windows: center the entire grid
+      // Calculate actual grid dimensions based on number of windows
+      size_t actualCols = std::min((size_t)SIDE_LENGTH, images.size());
+      size_t actualRows = (images.size() + SIDE_LENGTH - 1) / SIDE_LENGTH;
+
+      double gridWidth = actualCols * tileSize.x;
+      double gridHeight = actualRows * tileSize.y;
+
+      double gridOffsetX = (SIZE.x - gridWidth) / 2.0;
+      double gridOffsetY = (SIZE.y - gridHeight) / 2.0;
+
+      cellX = gridOffsetX + x * tileSize.x + MARGINSIZE;
+      cellY = gridOffsetY + y * tileSize.y + MARGINSIZE;
     }
 
     const double offsetX = (tileRenderSize.x - newSize.x) / 2.0;
@@ -660,6 +681,38 @@ void CHyprView::fullRender() {
 
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
     g_pHyprOpenGL->renderTextureInternal(images[i].fb.getTexture(), windowBox, {.damage = &damage, .a = 1.0, .round = BORDER_RADIUS});
+
+    // Render workspace number in top-left corner of the tile
+    auto window = images[i].pWindow.lock();
+    if (window && images[i].originalWorkspace) {
+      int workspaceID = images[i].originalWorkspace->m_id;
+      std::string workspaceText = std::to_string(workspaceID);
+
+      // Create text texture with bright red color, 48pt font (larger and bolder)
+      auto textTexture = g_pHyprOpenGL->renderText(workspaceText, CHyprColor(1.0, 0.2, 0.2, 1.0), 48, false, "sans-serif");
+
+      if (textTexture) {
+        // Position text in top-left corner with some padding
+        double textPadding = 15.0;
+        double textX = borderBox.x + textPadding;
+        double textY = borderBox.y + textPadding;
+
+        // Scale text size appropriately - larger scale for better visibility
+        double textWidth = textTexture->m_size.x * 0.8;
+        double textHeight = textTexture->m_size.y * 0.8;
+
+        CBox textBox = {textX, textY, textWidth, textHeight};
+
+        // Render more opaque dark background for text with better contrast
+        CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
+        CHyprOpenGLImpl::SRectRenderData bgData;
+        bgData.round = 8;
+        g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, 0.85), bgData);
+
+        // Render the text on top
+        g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
+      }
+    }
   }
 }
 
@@ -682,15 +735,16 @@ void CHyprView::onSwipeUpdate(double delta) {
   const float PERC = closing ? std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0) : 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
   const auto WORKSPACE_FOCUS_ID = closing && closeOnID != -1 ? closeOnID : openedID;
 
-  Vector2D tileSize = {pMonitor->m_size.x / SIDE_LENGTH, pMonitor->m_size.y / GRID_ROWS};
+  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+  Vector2D tileSize = {fullMonitorSize.x / SIDE_LENGTH, fullMonitorSize.y / GRID_ROWS};
 
   int gridX = WORKSPACE_FOCUS_ID % SIDE_LENGTH;
   int gridY = WORKSPACE_FOCUS_ID / SIDE_LENGTH;
 
-  const auto SIZEMAX = pMonitor->m_size * pMonitor->m_size / tileSize;
-  const auto POSMAX = (-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (pMonitor->m_size / tileSize);
+  const auto SIZEMAX = fullMonitorSize * fullMonitorSize / tileSize;
+  const auto POSMAX = (-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (fullMonitorSize / tileSize);
 
-  const auto SIZEMIN = pMonitor->m_size;
+  const auto SIZEMIN = fullMonitorSize;
   const auto POSMIN = Vector2D{0, 0};
 
   size->setValueAndWarp(lerp(SIZEMIN, SIZEMAX, PERC));
@@ -698,15 +752,16 @@ void CHyprView::onSwipeUpdate(double delta) {
 }
 
 void CHyprView::onSwipeEnd() {
-  const auto SIZEMIN = pMonitor->m_size;
-  Vector2D tileSize = {pMonitor->m_size.x / SIDE_LENGTH, pMonitor->m_size.y / GRID_ROWS};
-  const auto SIZEMAX = pMonitor->m_size * pMonitor->m_size / tileSize;
+  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+  const auto SIZEMIN = fullMonitorSize;
+  Vector2D tileSize = {fullMonitorSize.x / SIDE_LENGTH, fullMonitorSize.y / GRID_ROWS};
+  const auto SIZEMAX = fullMonitorSize * fullMonitorSize / tileSize;
   const auto PERC = (size->value() - SIZEMIN).x / (SIZEMAX - SIZEMIN).x;
   if (PERC > 0.5) {
     close();
     return;
   }
-  *size = pMonitor->m_size;
+  *size = fullMonitorSize;
   *pos = {0, 0};
 
   swipeWasCommenced = true;
