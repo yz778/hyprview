@@ -23,26 +23,21 @@ https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 * **Active Window Highlighting:** Distinguished border color for the currently focused window.
 * **Focus Restoration:** Properly restores window focus when closing the overview.
 
-## Building
+## Install with hyprpm
 
-This project uses a simple `Makefile`.
+```bash
+hyprpm add https://github.com/yz778/hyprview
+hyprpm enable hyprview
+```
 
-1. **Install dependencies:** Make sure you have the necessary development packages for the libraries listed in the `Makefile` (e.g., `hyprland`, `pixman-1`, `libdrm`, `pangocairo`, etc.).
-2. **Build the plugin:**
-   ```sh
-   make all
-   ```
-3. **Install:** The compiled library `build/hyprview.so` can be loaded by Hyprland.
+## Manual install
 
-## Configuration
-
-To use `hyprview`, you first need to load it in your `hyprland.conf`.
+1. Clone this repository
+2. Build the plugin: `make -C src all`
+3. Add plugin to your `hyprland.conf`
 
 ```ini
-# ~/.config/hypr/hyprland.conf
-
-# Load the plugin
-# plugin = /path/to/your/build/hyprview.so
+plugin = /full_path_to/hyprview.so
 ```
 
 ### Keybinds

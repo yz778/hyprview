@@ -6,7 +6,7 @@ else
 endif
 
 # Build directory
-BUILD_DIR = build
+BUILD_DIR = ../build
 
 # Source files
 SRCS = main.cpp hyprview.cpp ViewGesture.cpp HyprViewPassElement.cpp
