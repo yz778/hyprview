@@ -156,27 +156,25 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
   // Handle OFF action
   if (parsedArgs.action == DispatcherArgs::Action::OFF) {
-    LOG_FILE("=== OFF/CLOSE/DISABLE CALLED ===");
+
     for (auto &[monitor, instance] : g_pHyprViewInstances) {
       if (instance) {
-        LOG_FILE("off: Calling close() on instance");
+
         instance->close();
       }
     }
 
-    LOG_FILE("off: Calling removeAllOfType()");
     g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
 
-    LOG_FILE("off: Cleaning up empty monitor instances");
     for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end();) {
       if (it->second && it->second->closing) {
-        LOG_FILE("off: Erasing closing instance");
+
         it = g_pHyprViewInstances.erase(it);
       } else {
         ++it;
       }
     }
-    LOG_FILE(std::string("off: After cleanup, instances remaining=") + std::to_string(g_pHyprViewInstances.size()));
+
     return {};
   }
 
@@ -211,32 +209,27 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
     if (hasAnyOverview) {
       // Close all overviews on all monitors
-      LOG_FILE("=== TOGGLE: CLOSING ALL OVERVIEWS ===");
-      LOG_FILE(std::string("Toggle: closing ") + std::to_string(g_pHyprViewInstances.size()) + " instances");
+
       Debug::log(LOG, "[hyprview] Toggle: closing all overviews ({} instances)", g_pHyprViewInstances.size());
 
       for (auto &[monitor, instance] : g_pHyprViewInstances) {
         if (instance && !instance->closing) {
-          LOG_FILE("Toggle: Calling close() on instance");
+
           instance->close();
-          LOG_FILE("Toggle: close() returned");
         }
       }
 
-      LOG_FILE("Toggle: Calling removeAllOfType()");
       g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
-      LOG_FILE("Toggle: removeAllOfType() done");
 
-      LOG_FILE("Toggle: Cleaning up empty monitor instances");
       for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end();) {
         if (it->second && it->second->closing) {
-          LOG_FILE("Toggle: Erasing closing instance");
+
           it = g_pHyprViewInstances.erase(it);
         } else {
           ++it;
         }
       }
-      LOG_FILE(std::string("Toggle: After cleanup, instances remaining=") + std::to_string(g_pHyprViewInstances.size()));
+
     } else {
       // Open overview on all enabled monitors with specified collection mode
       Debug::log(LOG, "[hyprview] Toggle: opening overviews on all monitors with mode={}", (int)parsedArgs.collectionMode);
@@ -385,7 +378,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // Clean up closing instances
     for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end();) {
       if (it->second && it->second->closing) {
-        LOG_FILE("preRender: Removing closing instance");
+
         g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
         it = g_pHyprViewInstances.erase(it);
       } else {
@@ -467,7 +460,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_font_size", Hyprlang::INT{28});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_position", Hyprlang::STRING{""});
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity", Hyprlang::FLOAT{0.85});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:debug_log", Hyprlang::INT{0});
   HyprlandAPI::reloadConfig();
 
   return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.3"};

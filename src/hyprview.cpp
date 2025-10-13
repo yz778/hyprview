@@ -32,40 +32,30 @@ static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thispt
     instance->damage();
 }
 
-// Removed: removeOverview() - no longer needed without animated closing
+
 
 CHyprView::~CHyprView() {
-  LOG_FILE("=== ~CHyprView() DESTRUCTOR CALLED ===");
-  LOG_FILE(std::string("~CHyprView(): images.size()=") + std::to_string(images.size()));
 
   // Restore all windows to their original workspaces
-  LOG_FILE("~CHyprView(): Restoring windows to original workspaces");
+
   for (const auto &image : images) {
     auto window = image.pWindow.lock();
     if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
-      Debug::log(LOG, "[hyprview] Restoring window '{}' from workspace {} to {}",
-                 window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+      Debug::log(LOG, "[hyprview] Restoring window '{}' from workspace {} to {}", window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
       window->moveToWorkspace(image.originalWorkspace);
     }
   }
-  LOG_FILE("~CHyprView(): Workspace restoration complete");
 
   g_pHyprRenderer->makeEGLCurrent();
-  LOG_FILE("~CHyprView(): makeEGLCurrent() done");
 
   images.clear();
-  LOG_FILE("~CHyprView(): images.clear() done");
 
   // Also clear the background framebuffer
   bgFramebuffer.release();
-  LOG_FILE("~CHyprView(): bgFramebuffer released");
 
   g_pInputManager->unsetCursorImage();
-  LOG_FILE("~CHyprView(): unsetCursorImage() done");
 
   g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
-  LOG_FILE("~CHyprView(): markBlurDirtyForMonitor() done");
-  LOG_FILE("=== ~CHyprView() DESTRUCTOR FINISHED ===");
 }
 
 void CHyprView::captureBackground() {
@@ -103,13 +93,9 @@ void CHyprView::captureBackground() {
 
   // Capture the background with hidden windows
   CRegion fullRegion{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y};
-
   g_pHyprRenderer->beginRender(monitor, fullRegion, RENDER_MODE_FULL_FAKE, nullptr, &bgFramebuffer);
-
   // Render the workspace with hidden windows (showing just the wallpaper/background)
-  g_pHyprRenderer->renderWorkspace(monitor, activeWorkspace, std::chrono::steady_clock::now(),
-                                   CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
-
+  g_pHyprRenderer->renderWorkspace(monitor, activeWorkspace, std::chrono::steady_clock::now(), CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
   g_pHyprRenderer->endRender();
 
   // Restore all windows to original hidden state
@@ -220,7 +206,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     if (!shouldIncludeWindow(w))
       continue;
 
-    Debug::log(LOG, "[hyprview] Adding window '{}' from monitor '{}', workspace {}", w->m_title, pMonitor->m_description, w->m_workspace->m_id);
     windowsToRender.push_back(w);
   }
 
@@ -244,8 +229,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return a->m_realPosition->value().x < b->m_realPosition->value().x;
     return a->m_realPosition->value().y < b->m_realPosition->value().y;
   });
-
-  Debug::log(LOG, "[hyprview] CHyprView(): Collected {} windows for monitor '{}'", windowsToRender.size(), pMonitor->m_description);
 
   const size_t windowCount = windowsToRender.size();
 
@@ -327,9 +310,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
 
     const auto REALPOS = window->m_realPosition->value();
-
-    Debug::log(LOG, "[hyprview] Rendering window '{}' - workspace: {}, surfaceCount: {}",
-               window->m_title, window->m_workspace->m_id, window->surfacesCount());
 
     // Temporarily move window to monitor position for rendering
     window->m_realPosition->setValue(pMonitor->m_position);
@@ -552,10 +532,9 @@ void CHyprView::onDamageReported() {
 }
 
 void CHyprView::close() {
-  LOG_FILE("=== CLOSE() CALLED ===");
 
   if (closing) {
-    LOG_FILE("close(): already closing, returning");
+
     Debug::log(LOG, "[hyprview] close(): already closing, returning");
     return;
   }
@@ -564,7 +543,7 @@ void CHyprView::close() {
 
   // STEP 1: Restore ALL windows to their original workspaces FIRST
   // This ensures that when we focus a window, the workspace switch happens naturally
-  LOG_FILE("close(): Restoring all windows to original workspaces");
+
   Debug::log(LOG, "[hyprview] close(): Restoring all windows to original workspaces");
   for (const auto &image : images) {
     auto window = image.pWindow.lock();
@@ -574,30 +553,27 @@ void CHyprView::close() {
       window->moveToWorkspace(image.originalWorkspace);
     }
   }
-  LOG_FILE("close(): Workspace restoration complete");
 
   // STEP 2: Now focus the selected window (workspace will follow automatically)
   if (userExplicitlySelected && closeOnID >= 0 && closeOnID < (int)images.size()) {
-    LOG_FILE("close(): User explicitly selected window");
+
     const auto &TILE = images[closeOnID];
     auto window = TILE.pWindow.lock();
     if (window && window->m_isMapped) {
-      LOG_FILE(std::string("close(): Focusing window: ") + window->m_title);
+
       Debug::log(LOG, "[hyprview] close(): User selected window, focusing and bringing to top");
       g_pCompositor->focusWindow(window);
       g_pKeybindManager->alterZOrder("top");
     }
   } else {
-    LOG_FILE("close(): No explicit selection, restoring original focus");
+
     auto origWindow = originalFocusedWindow.lock();
     if (origWindow && origWindow->m_isMapped) {
-      LOG_FILE(std::string("close(): Restoring focus to: ") + origWindow->m_title);
+
       Debug::log(LOG, "[hyprview] close(): Restoring original window focus");
       g_pCompositor->focusWindow(origWindow);
     }
   }
-
-  LOG_FILE("=== CLOSE() FINISHED ===");
 }
 
 void CHyprView::onPreRender() {

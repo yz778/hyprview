@@ -126,4 +126,4 @@ You can customize the appearance and behavior of the overview by setting the fol
 | `plugin:hyprview:workspace_indicator_font_size`  | int       | Font size for workspace indicator in points.                                  | `28`         |
 | `plugin:hyprview:workspace_indicator_position`   | string    | Position: `top-left`, `top-right`, `bottom-left`, `bottom-right` (empty = top-right). | (empty)      |
 | `plugin:hyprview:workspace_indicator_bg_opacity` | float     | Opacity of the indicator background (0.0 = transparent, 1.0 = opaque).        | `0.85`       |
-| `plugin:hyprview:debug_log`                      | int       | Enable debug logging to `/tmp/hyprview.log` (`0` = disabled, `1` = enabled).  | `0`          |
+
