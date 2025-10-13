@@ -10,7 +10,7 @@ commit_pins = [
     ["c4a4c341568944bd4fb9cd503558b2de602c0213", "6704297d3946f738c7d190ee95edeafd9cced9b5"]  # 0.50.0
 ]
 
-[hyprdrag]
+[hyprview]
 description = "Hyprland plugin to display an interactive overview of all windows"
 authors = ["yz778"]
 output = "build/hyprview.so"
