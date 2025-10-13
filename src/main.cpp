@@ -411,7 +411,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
   HyprlandAPI::reloadConfig();
 
-  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "1.0"};
+  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.2"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
