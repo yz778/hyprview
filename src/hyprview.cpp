@@ -600,7 +600,8 @@ void CHyprView::fullRender() {
 
   // Render the captured background instead of a solid color
   if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
-    CBox monitorBox = {0, 0, SIZE.x, SIZE.y};
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize;  // Use actual monitor size, not animated size
+    CBox monitorBox = {0, 0, fullMonitorSize.x, fullMonitorSize.y};
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
     g_pHyprOpenGL->renderTextureInternal(bgFramebuffer.getTexture(), monitorBox,
                                          {.damage = &damage, .a = 1.0, .round = 0});
