@@ -29,11 +29,13 @@ class CMonitor;
 class CHyprView;
 
 // Forward declare friend functions
-CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
+CHyprView *findInstanceForAnimation(
+    WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
-  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
+  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false,
+            EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
   ~CHyprView();
 
   void render();
@@ -64,8 +66,28 @@ private:
   void redrawAll(bool forcelowres = false);
   void onWorkspaceChange();
   void fullRender();
-  void renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE);
+  void renderWorkspaceIndicator(size_t i, const CBox &borderBox,
+                                const CRegion &damage, const bool ISACTIVE);
   void captureBackground();
+  void calculateAdaptiveRowHeights(size_t windowCount, double screenHeight);
+
+  // Layout configuration constants
+  // Maximum columns for readability
+  static constexpr int kMaxGridColumns = 5;
+  // Single window takes 80% of screen
+  static constexpr double kSingleWindowScale = 0.8;
+  // Margin multiplier for tile spacing
+  static constexpr double kMarginMultiplier = 2.0;
+
+  // Workspace indicator constants
+  // Padding around indicator text
+  static constexpr double kIndicatorTextPadding = 15.0;
+  // Scale factor for indicator text size
+  static constexpr double kIndicatorTextScale = 0.8;
+  // Padding for indicator background
+  static constexpr double kIndicatorBgPadding = 8.0;
+  // Corner radius for indicator background
+  static constexpr int kIndicatorBgRound = 8;
 
   CFramebuffer bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
@@ -73,6 +95,14 @@ private:
   int SIDE_LENGTH = 3; // Grid columns
   int GRID_ROWS = 3;   // Grid rows
   int MARGIN = 15;     // Margin around each grid tile
+
+  // Adaptive row heights for better space utilization
+  // Height of each row
+  // Y position of each row start
+  // Number of windows in each row for centering
+  std::vector<double> rowHeights;
+  std::vector<double> rowYPositions;
+  std::vector<int> windowsPerRow;
 
   CHyprColor ACTIVE_BORDER_COLOR;
   CHyprColor INACTIVE_BORDER_COLOR;
@@ -123,8 +153,10 @@ private:
   bool swipeWasCommenced = false;
 
   friend class CHyprViewPassElement;
-  friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
+  friend CHyprView * ::findInstanceForAnimation(
+      WP<Hyprutils::Animation::CBaseAnimatedVariable>);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
-inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHyprViewInstances;
+inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>>
+    g_pHyprViewInstances;

@@ -1,6 +1,7 @@
 #include "hyprview.hpp"
 #include <algorithm>
 #include <any>
+#include <cmath>
 #include <unordered_set>
 #define private public
 #include <hyprland/src/Compositor.hpp>
@@ -30,6 +31,33 @@ static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thispt
   auto *instance = findInstanceForAnimation(thisptr);
   if (instance)
     instance->damage();
+}
+
+void CHyprView::calculateAdaptiveRowHeights(size_t windowCount, double screenHeight) {
+  rowHeights.clear();
+  rowYPositions.clear();
+  windowsPerRow.clear();
+
+  if (windowCount == 0 || GRID_ROWS == 0) {
+    return;
+  }
+
+  windowsPerRow.resize(GRID_ROWS, 0);
+  for (size_t i = 0; i < windowCount; ++i) {
+    int row = i / SIDE_LENGTH;
+    if (row < GRID_ROWS) {
+      windowsPerRow[row]++;
+    }
+  }
+
+  double uniformHeight = screenHeight / GRID_ROWS;
+  double currentY = 0.0;
+  for (int i = 0; i < GRID_ROWS; ++i) {
+    rowYPositions.push_back(currentY);
+    rowHeights.push_back(uniformHeight);
+    currentY += uniformHeight;
+  }
+  Debug::log(LOG, "[hyprview] Grid: {}x{} for {} windows, rowHeight={}", SIDE_LENGTH, GRID_ROWS, windowCount, uniformHeight);
 }
 
 CHyprView::~CHyprView() {
@@ -230,26 +258,26 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   const size_t windowCount = windowsToRender.size();
 
-  // Grid size calculation:
-  // 1 window: 1x1 (80% of screen size, centered)
-  // 2 windows: 2x1
-  // 3-4 windows: 2x2
-  // 5-9 windows: 3x3
-  // 10+ windows: 4xX
   if (windowCount == 1) {
     SIDE_LENGTH = 1;
     GRID_ROWS = 1;
-  } else if (windowCount <= 2) {
+  } else if (windowCount == 2) {
     SIDE_LENGTH = 2;
     GRID_ROWS = 1;
   } else if (windowCount <= 4) {
     SIDE_LENGTH = 2;
     GRID_ROWS = 2;
+  } else if (windowCount <= 6) {
+    SIDE_LENGTH = 3;
+    GRID_ROWS = 2;
   } else if (windowCount <= 9) {
     SIDE_LENGTH = 3;
     GRID_ROWS = 3;
   } else {
-    SIDE_LENGTH = 4;
+    double sqrtCount = std::sqrt((double)windowCount);
+    SIDE_LENGTH = (int)std::ceil(sqrtCount);
+    GRID_ROWS = (int)std::ceil((double)windowCount / (double)SIDE_LENGTH);
+    if (SIDE_LENGTH > kMaxGridColumns) SIDE_LENGTH = kMaxGridColumns;
     GRID_ROWS = (windowCount + SIDE_LENGTH - 1) / SIDE_LENGTH;
   }
 
@@ -261,10 +289,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->makeEGLCurrent();
 
-  // Use m_pixelSize for full monitor dimensions at native resolution
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+  calculateAdaptiveRowHeights(numWindows, fullMonitorSize.y);
   Vector2D tileSize = {fullMonitorSize.x / SIDE_LENGTH, fullMonitorSize.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
+  Vector2D tileRenderSize = tileSize - Vector2D{kMarginMultiplier * MARGIN, kMarginMultiplier * MARGIN};
 
   Debug::log(LOG,
              "[hyprview] Monitor size: {}x{}, Grid: {}x{}, Tile size: {}x{}, "
@@ -371,13 +399,39 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     lastMousePosLocal = globalMousePos - monitorPos;
 
     if (!images.empty()) {
-      int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
-      int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
-      int tileIndex = x + y * SIDE_LENGTH;
-
+      int row = 0;
+      if (!rowYPositions.empty() && !rowHeights.empty()) {
+        for (size_t r = 0; r < rowYPositions.size(); ++r) {
+          double rowStart = rowYPositions[r];
+          double rowEnd = rowStart + rowHeights[r];
+          if (lastMousePosLocal.y >= rowStart && lastMousePosLocal.y < rowEnd) {
+            row = r;
+            break;
+          }
+          if (lastMousePosLocal.y >= rowEnd) {
+            row = r + 1;
+          }
+        }
+        if (row >= GRID_ROWS) row = GRID_ROWS - 1;
+        if (row < 0) row = 0;
+      } else {
+        row = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
+      }
+      int windowsInThisRow = (row < (int)windowsPerRow.size()) ? windowsPerRow[row] : SIDE_LENGTH;
+      double tileWidth = fullMonitorSize.x / SIDE_LENGTH;
+      double rowCenteringOffset = 0.0;
+      if (windowsInThisRow < SIDE_LENGTH && windowsInThisRow > 0) {
+        double gridWidth = SIDE_LENGTH * tileWidth;
+        double usedWidth = windowsInThisRow * tileWidth;
+        rowCenteringOffset = (gridWidth - usedWidth) / 2.0;
+      }
+      double adjustedMouseX = lastMousePosLocal.x - rowCenteringOffset;
+      int col = (int)(adjustedMouseX / tileWidth);
+      if (col < 0) col = 0;
+      if (col >= windowsInThisRow) col = windowsInThisRow - 1;
+      int tileIndex = col + row * SIDE_LENGTH;
       if (tileIndex >= 0 && tileIndex < (int)images.size()) {
         auto window = images[tileIndex].pWindow.lock();
-
         if (window && window->m_isMapped) {
           auto lastHovered = lastHoveredWindow.lock();
           auto currentFocus = g_pCompositor->m_lastWindow.lock();
@@ -436,9 +490,37 @@ void CHyprView::selectHoveredWindow() {
     return;
 
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
-  int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
-  int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
-  closeOnID = x + y * SIDE_LENGTH;
+  int row = 0;
+  if (!rowYPositions.empty() && !rowHeights.empty()) {
+    for (size_t r = 0; r < rowYPositions.size(); ++r) {
+      double rowStart = rowYPositions[r];
+      double rowEnd = rowStart + rowHeights[r];
+      if (lastMousePosLocal.y >= rowStart && lastMousePosLocal.y < rowEnd) {
+        row = r;
+        break;
+      }
+      if (lastMousePosLocal.y >= rowEnd) {
+        row = r + 1;
+      }
+    }
+    if (row >= GRID_ROWS) row = GRID_ROWS - 1;
+    if (row < 0) row = 0;
+  } else {
+    row = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
+  }
+  int windowsInThisRow = (row < (int)windowsPerRow.size()) ? windowsPerRow[row] : SIDE_LENGTH;
+  double tileWidth = fullMonitorSize.x / SIDE_LENGTH;
+  double rowCenteringOffset = 0.0;
+  if (windowsInThisRow < SIDE_LENGTH && windowsInThisRow > 0) {
+    double gridWidth = SIDE_LENGTH * tileWidth;
+    double usedWidth = windowsInThisRow * tileWidth;
+    rowCenteringOffset = (gridWidth - usedWidth) / 2.0;
+  }
+  double adjustedMouseX = lastMousePosLocal.x - rowCenteringOffset;
+  int col = (int)(adjustedMouseX / tileWidth);
+  if (col < 0) col = 0;
+  if (col >= windowsInThisRow) col = windowsInThisRow - 1;
+  closeOnID = col + row * SIDE_LENGTH;
 
   if (closeOnID >= (int)images.size())
     closeOnID = images.size() - 1;
@@ -517,9 +599,16 @@ void CHyprView::onDamageReported() {
 
   Vector2D SIZE = size->value();
 
-  Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
-  CBox texbox = CBox{(openedID % SIDE_LENGTH) * tileSize.x + MARGIN, (openedID / SIDE_LENGTH) * tileSize.y + MARGIN, tileRenderSize.x, tileRenderSize.y}.translate(pMonitor->m_position);
+  double tileWidth = SIZE.x / SIDE_LENGTH;
+  int col = openedID % SIDE_LENGTH;
+  int row = openedID / SIDE_LENGTH;
+  double rowHeight = (row < (int)rowHeights.size()) ? rowHeights[row] : (SIZE.y / GRID_ROWS);
+  double rowYPos = (row < (int)rowYPositions.size()) ? rowYPositions[row] : (row * SIZE.y / GRID_ROWS);
+  double scaleFactor = SIZE.y / pMonitor->m_pixelSize.y;
+  rowHeight *= scaleFactor;
+  rowYPos *= scaleFactor;
+  Vector2D tileRenderSize = {tileWidth - kMarginMultiplier * MARGIN, rowHeight - kMarginMultiplier * MARGIN};
+  CBox texbox = CBox{col * tileWidth + MARGIN, rowYPos + MARGIN, tileRenderSize.x, tileRenderSize.y}.translate(pMonitor->m_position);
 
   damage();
 
@@ -590,12 +679,11 @@ void CHyprView::fullRender() {
 
   Vector2D SIZE = size->value();
 
-  Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGINSIZE, 2.0 * MARGINSIZE};
-
-  // Special case for single window: 80% of screen size, centered
-  if (images.size() == 1) {
-    tileRenderSize = SIZE * 0.8;
+  double tileWidth = SIZE.x / SIDE_LENGTH;
+  bool isSingleWindow = (images.size() == 1);
+  Vector2D tileRenderSize;
+  if (isSingleWindow) {
+    tileRenderSize = SIZE * kSingleWindowScale;
   }
 
   // Render the captured background instead of a solid color
@@ -614,50 +702,60 @@ void CHyprView::fullRender() {
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 
   for (size_t i = 0; i < images.size(); ++i) {
-    size_t x = i % SIDE_LENGTH;
-    size_t y = i / SIDE_LENGTH;
+    size_t col = i % SIDE_LENGTH;
+    size_t row = i / SIDE_LENGTH;
 
     const Vector2D &textureSize = images[i].fb.m_size;
 
     if (textureSize.x < 1 || textureSize.y < 1)
       continue;
 
-    const double textureAspect = textureSize.x / textureSize.y;
-    const double cellAspect = tileRenderSize.x / tileRenderSize.y;
-
-    Vector2D newSize;
-    if (textureAspect > cellAspect) {
-      newSize.x = tileRenderSize.x;
-      newSize.y = newSize.x / textureAspect;
-    } else {
-      newSize.y = tileRenderSize.y;
-      newSize.x = newSize.y * textureAspect;
-    }
-
     // Center the grid on screen
     double cellX, cellY;
-    if (images.size() == 1) {
-      // Single window: center it
+    double cellWidth, cellHeight;
+    if (isSingleWindow) {
       cellX = (SIZE.x - tileRenderSize.x) / 2.0;
       cellY = (SIZE.y - tileRenderSize.y) / 2.0;
+      cellWidth = tileRenderSize.x;
+      cellHeight = tileRenderSize.y;
     } else {
-      // Multiple windows: center the entire grid
-      // Calculate actual grid dimensions based on number of windows
+      double rowHeight = (row < rowHeights.size()) ? rowHeights[row] : (SIZE.y / GRID_ROWS);
+      double rowYPos = (row < rowYPositions.size()) ? rowYPositions[row] : (row * SIZE.y / GRID_ROWS);
+      double scaleFactor = SIZE.y / pMonitor->m_pixelSize.y;
+      rowHeight *= scaleFactor;
+      rowYPos *= scaleFactor;
+      cellWidth = tileWidth - kMarginMultiplier * MARGINSIZE;
+      cellHeight = rowHeight - kMarginMultiplier * MARGINSIZE;
       size_t actualCols = std::min((size_t)SIDE_LENGTH, images.size());
       size_t actualRows = (images.size() + SIDE_LENGTH - 1) / SIDE_LENGTH;
-
-      double gridWidth = actualCols * tileSize.x;
-      double gridHeight = actualRows * tileSize.y;
-
+      double gridWidth = actualCols * tileWidth;
+      double totalGridHeight = 0.0;
+      for (size_t r = 0; r < actualRows && r < rowHeights.size(); ++r) {
+        totalGridHeight += rowHeights[r] * scaleFactor;
+      }
       double gridOffsetX = (SIZE.x - gridWidth) / 2.0;
-      double gridOffsetY = (SIZE.y - gridHeight) / 2.0;
-
-      cellX = gridOffsetX + x * tileSize.x + MARGINSIZE;
-      cellY = gridOffsetY + y * tileSize.y + MARGINSIZE;
+      double gridOffsetY = (SIZE.y - totalGridHeight) / 2.0;
+      int windowsInThisRow = (row < windowsPerRow.size()) ? windowsPerRow[row] : SIDE_LENGTH;
+      double rowCenteringOffset = 0.0;
+      if (windowsInThisRow < SIDE_LENGTH && windowsInThisRow > 0) {
+        double usedWidth = windowsInThisRow * tileWidth;
+        rowCenteringOffset = (gridWidth - usedWidth) / 2.0;
+      }
+      cellX = gridOffsetX + rowCenteringOffset + col * tileWidth + MARGINSIZE;
+      cellY = gridOffsetY + rowYPos + MARGINSIZE;
     }
-
-    const double offsetX = (tileRenderSize.x - newSize.x) / 2.0;
-    const double offsetY = (tileRenderSize.y - newSize.y) / 2.0;
+    const double textureAspect = textureSize.x / textureSize.y;
+    const double cellAspect = cellWidth / cellHeight;
+    Vector2D newSize;
+    if (textureAspect > cellAspect) {
+      newSize.x = cellWidth;
+      newSize.y = newSize.x / textureAspect;
+    } else {
+      newSize.y = cellHeight;
+      newSize.x = newSize.y * textureAspect;
+    }
+    const double offsetX = (cellWidth - newSize.x) / 2.0;
+    const double offsetY = (cellHeight - newSize.y) / 2.0;
 
     CBox windowBox = {cellX + offsetX, cellY + offsetY, newSize.x, newSize.y};
     CBox borderBox = {windowBox.x - BORDER_WIDTH, windowBox.y - BORDER_WIDTH, windowBox.width + 2 * BORDER_WIDTH, windowBox.height + 2 * BORDER_WIDTH};
@@ -696,7 +794,7 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const 
   auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR, WORKSPACE_INDICATOR_FONT_SIZE, false, "sans-serif");
 
   if (textTexture) {
-    double textPadding = 15.0;
+    const double textPadding = kIndicatorTextPadding;
     double textX, textY;
 
     // Calculate position based on configured position
@@ -705,25 +803,27 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const 
       textY = borderBox.y + textPadding;
     } else if (WORKSPACE_INDICATOR_POSITION == "bottom-left") {
       textX = borderBox.x + textPadding;
-      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * kIndicatorTextScale) - textPadding;
     } else if (WORKSPACE_INDICATOR_POSITION == "bottom-right") {
-      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
-      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * kIndicatorTextScale) - textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * kIndicatorTextScale) - textPadding;
     } else {
-      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * kIndicatorTextScale) - textPadding;
       textY = borderBox.y + textPadding;
     }
 
     // Scale text size appropriately
-    double textWidth = textTexture->m_size.x * 0.8;
-    double textHeight = textTexture->m_size.y * 0.8;
+    double textWidth = textTexture->m_size.x * kIndicatorTextScale;
+    double textHeight = textTexture->m_size.y * kIndicatorTextScale;
 
     CBox textBox = {textX, textY, textWidth, textHeight};
 
     // Render background for text with configured opacity
-    CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
+    CBox textBgBox = {textX - kIndicatorBgPadding, textY - kIndicatorBgPadding, 
+                      textWidth + kMarginMultiplier * kIndicatorBgPadding, 
+                      textHeight + kMarginMultiplier * kIndicatorBgPadding};
     CHyprOpenGLImpl::SRectRenderData bgData;
-    bgData.round = 8;
+    bgData.round = kIndicatorBgRound;
     g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY), bgData);
 
     // Render the text on top
