@@ -64,6 +64,7 @@ private:
   void redrawAll(bool forcelowres = false);
   void onWorkspaceChange();
   void fullRender();
+  void renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE);
   void captureBackground();
 
   CFramebuffer bgFramebuffer; // Store the captured background

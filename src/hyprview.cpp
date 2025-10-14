@@ -32,8 +32,6 @@ static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thispt
     instance->damage();
 }
 
-
-
 CHyprView::~CHyprView() {
 
   // Restore all windows to their original workspaces
@@ -679,50 +677,56 @@ void CHyprView::fullRender() {
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
     g_pHyprOpenGL->renderTextureInternal(images[i].fb.getTexture(), windowBox, {.damage = &damage, .a = 1.0, .round = BORDER_RADIUS});
 
-    // Render workspace number indicator (if enabled)
-    auto window = images[i].pWindow.lock();
-    if (WORKSPACE_INDICATOR_ENABLED && window && images[i].originalWorkspace) {
-      int workspaceID = images[i].originalWorkspace->m_id;
-      std::string workspaceText = "wsid:" + std::to_string(workspaceID);
-      // Use border color based on whether window is active
-      const auto &INDICATOR_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
-      auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR, WORKSPACE_INDICATOR_FONT_SIZE, false, "sans-serif");
-
-      if (textTexture) {
-        double textPadding = 15.0;
-        double textX, textY;
-
-        // Calculate position based on configured position
-        if (WORKSPACE_INDICATOR_POSITION == "top-left") {
-          textX = borderBox.x + textPadding;
-          textY = borderBox.y + textPadding;
-        } else if (WORKSPACE_INDICATOR_POSITION == "bottom-left") {
-          textX = borderBox.x + textPadding;
-          textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
-        } else if (WORKSPACE_INDICATOR_POSITION == "bottom-right") {
-          textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
-          textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
-        } else {
-          textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
-          textY = borderBox.y + textPadding;
-        }
-
-        // Scale text size appropriately
-        double textWidth = textTexture->m_size.x * 0.8;
-        double textHeight = textTexture->m_size.y * 0.8;
-
-        CBox textBox = {textX, textY, textWidth, textHeight};
-
-        // Render background for text with configured opacity
-        CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
-        CHyprOpenGLImpl::SRectRenderData bgData;
-        bgData.round = 8;
-        g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY), bgData);
-
-        // Render the text on top
-        g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
+    // Render workspace number indicator (if enabled and window exists)
+    if (WORKSPACE_INDICATOR_ENABLED) {
+      auto window = images[i].pWindow.lock();
+      if (window && images[i].originalWorkspace) {
+        renderWorkspaceIndicator(i, borderBox, damage, ISACTIVE);
       }
     }
+  }
+}
+
+void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE) {
+  int workspaceID = images[i].originalWorkspace->m_id;
+  std::string workspaceText = "wsid:" + std::to_string(workspaceID);
+  // Use border color based on whether window is active
+  const auto &INDICATOR_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+  auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR, WORKSPACE_INDICATOR_FONT_SIZE, false, "sans-serif");
+
+  if (textTexture) {
+    double textPadding = 15.0;
+    double textX, textY;
+
+    // Calculate position based on configured position
+    if (WORKSPACE_INDICATOR_POSITION == "top-left") {
+      textX = borderBox.x + textPadding;
+      textY = borderBox.y + textPadding;
+    } else if (WORKSPACE_INDICATOR_POSITION == "bottom-left") {
+      textX = borderBox.x + textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+    } else if (WORKSPACE_INDICATOR_POSITION == "bottom-right") {
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+    } else {
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+      textY = borderBox.y + textPadding;
+    }
+
+    // Scale text size appropriately
+    double textWidth = textTexture->m_size.x * 0.8;
+    double textHeight = textTexture->m_size.y * 0.8;
+
+    CBox textBox = {textX, textY, textWidth, textHeight};
+
+    // Render background for text with configured opacity
+    CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
+    CHyprOpenGLImpl::SRectRenderData bgData;
+    bgData.round = 8;
+    g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY), bgData);
+
+    // Render the text on top
+    g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
   }
 }
 
