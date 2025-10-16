@@ -15,6 +15,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #undef private
 #include "HyprViewPassElement.hpp"
+#include "PlacementAlgorithms.hpp"
 
 // Helper to find the CHyprView instance for a given animation variable
 CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
@@ -26,7 +27,7 @@ CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariab
   return nullptr;
 }
 
-static void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
+void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
   auto *instance = findInstanceForAnimation(thisptr);
   if (instance)
     instance->damage();
@@ -228,124 +229,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     return a->m_realPosition->value().y < b->m_realPosition->value().y;
   });
 
-  const size_t windowCount = windowsToRender.size();
-
-  // Grid size calculation:
-  // 1 window: 1x1 (80% of screen size, centered)
-  // 2 windows: 2x1
-  // 3-4 windows: 2x2
-  // 5-9 windows: 3x3
-  // 10+ windows: 4xX
-  if (windowCount == 1) {
-    SIDE_LENGTH = 1;
-    GRID_ROWS = 1;
-  } else if (windowCount <= 2) {
-    SIDE_LENGTH = 2;
-    GRID_ROWS = 1;
-  } else if (windowCount <= 4) {
-    SIDE_LENGTH = 2;
-    GRID_ROWS = 2;
-  } else if (windowCount <= 9) {
-    SIDE_LENGTH = 3;
-    GRID_ROWS = 3;
-  } else {
-    SIDE_LENGTH = 4;
-    GRID_ROWS = (windowCount + SIDE_LENGTH - 1) / SIDE_LENGTH;
-  }
-
-  Debug::log(LOG, "[hyprview] Using {}x{} grid for {} windows", SIDE_LENGTH, GRID_ROWS, windowCount);
-
-  const size_t maxWindows = SIDE_LENGTH * GRID_ROWS;
-  const size_t numWindows = std::min(windowsToRender.size(), maxWindows);
-  images.resize(numWindows);
-
-  g_pHyprRenderer->makeEGLCurrent();
-
-  // Use m_pixelSize for full monitor dimensions at native resolution
-  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
-  Vector2D tileSize = {fullMonitorSize.x / SIDE_LENGTH, fullMonitorSize.y / GRID_ROWS};
-  Vector2D tileRenderSize = tileSize - Vector2D{2.0 * MARGIN, 2.0 * MARGIN};
-
-  Debug::log(LOG,
-             "[hyprview] Monitor size: {}x{}, Grid: {}x{}, Tile size: {}x{}, "
-             "Render size: {}x{}",
-             pMonitor->m_size.x, pMonitor->m_size.y, SIDE_LENGTH, GRID_ROWS, tileSize.x, tileSize.y, tileRenderSize.x, tileRenderSize.y);
-
-  g_pHyprRenderer->m_bBlockSurfaceFeedback = true;
-
-  int currentid = -1;
-
-  // Save original workspaces BEFORE moving
-  std::unordered_map<PHLWINDOW, PHLWORKSPACE> originalWorkspaces;
-  for (auto &window : windowsToRender) {
-    originalWorkspaces[window] = window->m_workspace;
-  }
-
-  // Move windows to active workspace so they have valid surfaces for rendering
-  for (auto &window : windowsToRender) {
-    if (window->m_workspace != activeWorkspace) {
-      Debug::log(LOG, "[hyprview] Moving window '{}' from workspace {} to {}",
-                 window->m_title, window->m_workspace->m_id, activeWorkspace->m_id);
-      window->moveToWorkspace(activeWorkspace);
-    }
-  }
-
-  // Render all windows to framebuffers
-  for (size_t i = 0; i < numWindows; ++i) {
-    CHyprView::SWindowImage &image = images[i];
-    auto &window = windowsToRender[i];
-
-    image.pWindow = window;
-    image.originalPos = window->m_realPosition->value();
-    image.originalSize = window->m_realSize->value();
-    image.originalWorkspace = originalWorkspaces[window]; // Save the original workspace
-
-    image.box = {(i % SIDE_LENGTH) * tileSize.x + MARGIN, (i / SIDE_LENGTH) * tileSize.y + MARGIN, tileRenderSize.x, tileRenderSize.y};
-
-    const auto RENDERSIZE = (window->m_realSize->value() * pMonitor->m_scale).floor();
-    image.fb.alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y), pMonitor->m_output->state->state().drmFormat);
-
-    CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
-
-    const auto REALPOS = window->m_realPosition->value();
-
-    // Temporarily move window to monitor position for rendering
-    window->m_realPosition->setValue(pMonitor->m_position);
-
-    g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
-
-    // Now all windows should have valid surfaces since they're on the active workspace
-    if (window && window->m_isMapped) {
-      g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(), false, RENDER_PASS_MAIN, false, false);
-    }
-
-    g_pHyprOpenGL->m_renderData.blockScreenShader = true;
-    g_pHyprRenderer->endRender();
-
-    // Restore original position
-    window->m_realPosition->setValue(REALPOS);
-  }
+  // Call the new grid placement function
+  gridPlacement(this, windowsToRender);
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
-
-  if (numWindows > 0)
-    currentid = 0;
-
-  int gridX = currentid % SIDE_LENGTH;
-  int gridY = currentid / SIDE_LENGTH;
-
-  g_pAnimationManager->createAnimation(fullMonitorSize * fullMonitorSize / tileSize, size, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-  g_pAnimationManager->createAnimation((-(tileSize * Vector2D{(double)gridX, (double)gridY}) * pMonitor->m_scale) * (fullMonitorSize / tileSize), pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-
-  size->setUpdateCallback(damageMonitor);
-  pos->setUpdateCallback(damageMonitor);
-
-  if (!swipe) {
-    *size = fullMonitorSize;
-    *pos = {0, 0};
-  }
-
-  openedID = currentid;
 
   g_pInputManager->setCursorImageUntilUnset("left_ptr");
 

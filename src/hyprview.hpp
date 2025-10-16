@@ -31,6 +31,9 @@ class CHyprView;
 // Forward declare friend functions
 CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
+// Function declaration for damageMonitor used by placement algorithms
+void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
+
 class CHyprView {
 public:
   CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
@@ -124,6 +127,7 @@ private:
 
   friend class CHyprViewPassElement;
   friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
+  friend void gridPlacement(CHyprView*, std::vector<PHLWINDOW> &);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
