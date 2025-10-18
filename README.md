@@ -60,29 +60,20 @@ bind = SUPER, H, hyprview:toggle, all
 bind = SUPER, S, hyprview:toggle, all special
 
 # Close the overview
-bind = SUPER, ESC, hyprview:off
+bind = SUPER, ESC, hyprview:toggle, off
 ```
 
 ### Dispatchers
 
 The `hyprview` dispatcher uses a flexible argument format: `hyprview:<action>[,<mode>]`.
 
-* **`<action>`** (required): `toggle`, `on`, `off`, `select`.
+* **`<action>`** (required): `toggle`
 * **`<mode>`** (optional): A comma-separated list of keywords to define which windows to display.
+  * `on`: Turn overview on
+  * `off`: Turn overview off
   * `all`: Show windows from all workspaces on the monitor.
   * `special`: Include windows from the special (scratchpad) workspace.
-  * Combining them (e.g., `all,special`) works as expected.
-
-If no mode is specified, it defaults to showing windows from the **current workspace only**.
-
-
-| Dispatcher / Action | Mode Argument(s)    | Description                                                                                                       |
-| --------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `hyprview:toggle`   | `[all]` `[special]` | Toggles the overview. If arguments are provided, the overview will open with that mode if it wasn't already open. |
-| `hyprview:on`       | `[all]` `[special]` | Turns the overview on with the specified mode. Does nothing if already active.                                    |
-| `hyprview:off`      | (none)              | Closes the overview.                                                                                              |
-| `hyprview:close`    | (none)              | Alias for`hyprview:off`.                                                                                          |
-| `hyprview:select`   | (none)              | Selects the currently hovered window and closes the overview.                                                     |
+  * Combining them (e.g., `all special`) works as expected.
 
 ### Gestures
 
@@ -126,4 +117,3 @@ You can customize the appearance and behavior of the overview by setting the fol
 | `plugin:hyprview:workspace_indicator_font_size`  | int       | Font size for workspace indicator in points.                                  | `28`         |
 | `plugin:hyprview:workspace_indicator_position`   | string    | Position: `top-left`, `top-right`, `bottom-left`, `bottom-right` (empty = top-right). | (empty)      |
 | `plugin:hyprview:workspace_indicator_bg_opacity` | float     | Opacity of the indicator background (0.0 = transparent, 1.0 = opaque).        | `0.85`       |
-

@@ -105,7 +105,7 @@ static DispatcherArgs parseDispatcherArgs(const std::string &arg) {
     result.action = DispatcherArgs::Action::TOGGLE;
   } else if (lowerArg.find("on") != std::string::npos) {
     result.action = DispatcherArgs::Action::ON;
-  } else if (lowerArg.find("off") != std::string::npos || lowerArg.find("close") != std::string::npos || lowerArg.find("disable") != std::string::npos) {
+  } else if (lowerArg.find("off") != std::string::npos) {
     result.action = DispatcherArgs::Action::OFF;
   } else if (lowerArg == "select") {
     result.action = DispatcherArgs::Action::SELECT;
@@ -443,9 +443,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   });
 
   HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:toggle", ::onHyprviewDispatcher);
-  HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:on", ::onHyprviewDispatcher);
 
-  Debug::log(LOG, "[hyprview] Plugin initialized, dispatchers 'hyprview:toggle' and 'hyprview:on' registered");
+  Debug::log(LOG, "[hyprview] Plugin initialized, dispatchers 'hyprview:toggle' registered");
 
   HyprlandAPI::addConfigKeyword(PHANDLE, "hyprview-gesture", ::hyprviewGestureKeyword, {});
 
@@ -462,7 +461,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity", Hyprlang::FLOAT{0.85});
   HyprlandAPI::reloadConfig();
 
-  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.3"};
+  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.4"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
