@@ -65,6 +65,8 @@ bind = SUPER, ESC, hyprview:toggle, off
 
 ### Dispatchers
 
+#### hyprview:toggle
+
 The `hyprview` dispatcher uses a flexible argument format: `hyprview:<action>[,<mode>]`.
 
 * **`<action>`** (required): `toggle`

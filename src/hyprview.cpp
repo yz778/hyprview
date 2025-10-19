@@ -116,6 +116,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   originalFocusedWindow = g_pCompositor->m_lastWindow;
   userExplicitlySelected = false;
+  currentHoveredIndex = -1;
+  visualHoveredIndex = -1;
 
   auto origWindow = originalFocusedWindow.lock();
   Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}", (void *)origWindow.get());
@@ -258,31 +260,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     lastMousePosLocal = globalMousePos - monitorPos;
 
     if (!images.empty()) {
-      int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
-      int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
-      int tileIndex = x + y * SIDE_LENGTH;
-
-      if (tileIndex >= 0 && tileIndex < (int)images.size()) {
-        auto window = images[tileIndex].pWindow.lock();
-
-        if (window && window->m_isMapped) {
-          auto lastHovered = lastHoveredWindow.lock();
-          auto currentFocus = g_pCompositor->m_lastWindow.lock();
-
-          // Always ensure focus is on the hovered window
-          // Check both if it's a different window OR if compositor focus has drifted
-          bool needsFocusUpdate = (window != lastHovered) || (window != currentFocus);
-
-          if (needsFocusUpdate) {
-            Debug::log(LOG, "[hyprview] Updating focus: {} (prev: {}, compositor: {})",
-                       window->m_title,
-                       lastHovered ? lastHovered->m_title : "none",
-                       currentFocus ? currentFocus->m_title : "none");
-            g_pCompositor->focusWindow(window);
-            lastHoveredWindow = window;
-          }
-        }
-      }
+      // Use the new accurate mouse-to-tile calculation
+      int tileIndex = getWindowIndexFromMousePos(lastMousePosLocal);
+      
+      // Update hover state using the new function (includes throttling and validation)
+      updateHoverState(tileIndex);
     }
   };
 
@@ -322,22 +304,36 @@ void CHyprView::selectHoveredWindow() {
   if (closing)
     return;
 
-  Vector2D fullMonitorSize = pMonitor->m_pixelSize;
-  int x = lastMousePosLocal.x / fullMonitorSize.x * SIDE_LENGTH;
-  int y = lastMousePosLocal.y / fullMonitorSize.y * GRID_ROWS;
-  closeOnID = x + y * SIDE_LENGTH;
-
-  if (closeOnID >= (int)images.size())
-    closeOnID = images.size() - 1;
-  if (closeOnID < 0)
-    closeOnID = 0;
+  // Use the currently tracked hovered index for consistency
+  closeOnID = currentHoveredIndex;
+  
+  // Safety validation - ensure we have a valid window to select
+  if (closeOnID < 0 || closeOnID >= (int)images.size()) {
+    Debug::log(WARN, "[hyprview] selectHoveredWindow(): Invalid currentHoveredIndex {}, recalculating from mouse position", closeOnID);
+    
+    // Fallback: recalculate from current mouse position
+    closeOnID = getWindowIndexFromMousePos(lastMousePosLocal);
+    
+    // Final fallback: use bounds-clamped value
+    if (closeOnID < 0 || closeOnID >= (int)images.size()) {
+      closeOnID = std::max(0, std::min((int)images.size() - 1, 0));
+    }
+  }
+  
+  // Verify the selected window is valid
+  if (closeOnID >= 0 && closeOnID < (int)images.size()) {
+    auto selectedWindow = images[closeOnID].pWindow.lock();
+    if (!selectedWindow || !selectedWindow->m_isMapped) {
+      Debug::log(WARN, "[hyprview] selectHoveredWindow(): Selected window at index {} is invalid", closeOnID);
+    }
+  }
 
   userExplicitlySelected = true;
 
   Debug::log(LOG,
              "[hyprview] selectHoveredWindow(): User explicitly selected "
-             "window at index {}",
-             closeOnID);
+             "window at index {} (from currentHoveredIndex {})",
+             closeOnID, currentHoveredIndex);
 }
 
 void CHyprView::redrawID(int id, bool forcelowres) {
@@ -668,4 +664,95 @@ void CHyprView::onSwipeEnd() {
 
   swipeWasCommenced = true;
   m_isSwiping = false;
+}
+
+int CHyprView::getWindowIndexFromMousePos(const Vector2D& mousePos) {
+  if (images.empty()) return -1;
+  
+  Vector2D SIZE = size->value();
+  
+  // Special case for single window: it's centered and takes 80% of screen
+  if (images.size() == 1) {
+    Vector2D singleWindowSize = SIZE * 0.8;
+    double windowX = (SIZE.x - singleWindowSize.x) / 2.0;
+    double windowY = (SIZE.y - singleWindowSize.y) / 2.0;
+    
+    // Check if mouse is within the single window bounds
+    if (mousePos.x >= windowX && mousePos.x <= windowX + singleWindowSize.x &&
+        mousePos.y >= windowY && mousePos.y <= windowY + singleWindowSize.y) {
+      return 0;
+    } else {
+      return -1;
+    }
+  }
+  
+  // Multiple windows: use grid layout
+  Vector2D tileSize = {SIZE.x / SIDE_LENGTH, SIZE.y / GRID_ROWS};
+  
+  // Calculate grid centering offset
+  size_t actualCols = std::min((size_t)SIDE_LENGTH, images.size());
+  size_t actualRows = (images.size() + SIDE_LENGTH - 1) / SIDE_LENGTH;
+  
+  double gridWidth = actualCols * tileSize.x;
+  double gridHeight = actualRows * tileSize.y;
+  
+  double gridOffsetX = (SIZE.x - gridWidth) / 2.0;
+  double gridOffsetY = (SIZE.y - gridHeight) / 2.0;
+  
+  // Adjust mouse position relative to grid
+  double relativeX = mousePos.x - gridOffsetX;
+  double relativeY = mousePos.y - gridOffsetY;
+  
+  // Check if mouse is within grid bounds
+  if (relativeX < 0 || relativeY < 0 || relativeX >= gridWidth || relativeY >= gridHeight) {
+    return -1;
+  }
+  
+  // Calculate tile indices
+  int tileX = (int)(relativeX / tileSize.x);
+  int tileY = (int)(relativeY / tileSize.y);
+  
+  // Calculate linear index
+  int tileIndex = tileX + tileY * SIDE_LENGTH;
+  
+  // Bounds check
+  if (tileIndex < 0 || tileIndex >= (int)images.size()) {
+    return -1;
+  }
+  
+  return tileIndex;
+}
+
+bool CHyprView::isMouseOverValidTile(const Vector2D& mousePos) {
+  return getWindowIndexFromMousePos(mousePos) != -1;
+}
+
+void CHyprView::updateHoverState(int newIndex) {
+  // Update visual hover state immediately for responsiveness
+  if (newIndex != visualHoveredIndex) {
+    visualHoveredIndex = newIndex;
+    // Trigger immediate visual update without waiting for focus change
+    damage();
+  }
+  
+  if (newIndex == currentHoveredIndex) {
+    return; // No focus change needed
+  }
+  
+  currentHoveredIndex = newIndex;
+  
+  if (newIndex >= 0 && newIndex < (int)images.size()) {
+    auto window = images[newIndex].pWindow.lock();
+    if (window && window->m_isMapped) {
+      auto lastHovered = lastHoveredWindow.lock();
+      
+      // Only update focus if it's actually a different window
+      if (window != lastHovered) {
+        Debug::log(LOG, "[hyprview] updateHoverState: Focusing window {} at index {}", 
+                   window->m_title, newIndex);
+        g_pCompositor->focusWindow(window);
+        lastHoveredWindow = window;
+      }
+    }
+  }
 }

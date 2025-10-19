@@ -53,6 +53,11 @@ public:
   // close without a selection
   void close();
   void selectHoveredWindow();
+  
+  // Accurate mouse-to-tile calculation
+  int getWindowIndexFromMousePos(const Vector2D& mousePos);
+  bool isMouseOverValidTile(const Vector2D& mousePos);
+  void updateHoverState(int newIndex);
 
   bool blockOverviewRendering = false;
   bool blockDamageReporting = false;
@@ -104,6 +109,8 @@ private:
 
   int openedID = -1;
   int closeOnID = -1;
+  int currentHoveredIndex = -1; // Current tile index under mouse cursor
+  int visualHoveredIndex = -1;  // Visual hover state (for immediate feedback)
 
   std::vector<SWindowImage> images;
 
