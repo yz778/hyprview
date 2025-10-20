@@ -251,19 +251,17 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     Vector2D monitorPos = pMonitor->m_position;
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-    // Only handle if mouse is on this monitor
-    if (globalMousePos.x < monitorPos.x || globalMousePos.x >= monitorPos.x + fullMonitorSize.x ||
-        globalMousePos.y < monitorPos.y || globalMousePos.y >= monitorPos.y + fullMonitorSize.y) {
+    bool mouseOnThisMonitor = (globalMousePos.x >= monitorPos.x && globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
+                               globalMousePos.y >= monitorPos.y && globalMousePos.y < monitorPos.y + fullMonitorSize.y);
+
+    if (!mouseOnThisMonitor) {
       return; // Mouse is on a different monitor
     }
 
     lastMousePosLocal = globalMousePos - monitorPos;
 
     if (!images.empty()) {
-      // Use the new accurate mouse-to-tile calculation
       int tileIndex = getWindowIndexFromMousePos(lastMousePosLocal);
-      
-      // Update hover state using the new function (includes throttling and validation)
       updateHoverState(tileIndex);
     }
   };
@@ -735,24 +733,15 @@ void CHyprView::updateHoverState(int newIndex) {
     damage();
   }
   
-  if (newIndex == currentHoveredIndex) {
-    return; // No focus change needed
-  }
-  
   currentHoveredIndex = newIndex;
   
   if (newIndex >= 0 && newIndex < (int)images.size()) {
     auto window = images[newIndex].pWindow.lock();
     if (window && window->m_isMapped) {
-      auto lastHovered = lastHoveredWindow.lock();
-      
-      // Only update focus if it's actually a different window
-      if (window != lastHovered) {
-        Debug::log(LOG, "[hyprview] updateHoverState: Focusing window {} at index {}", 
-                   window->m_title, newIndex);
-        g_pCompositor->focusWindow(window);
-        lastHoveredWindow = window;
-      }
+      Debug::log(LOG, "[hyprview] updateHoverState: Focusing window {} at index {}", 
+                 window->m_title, newIndex);
+      g_pCompositor->focusWindow(window);
+      lastHoveredWindow = window;
     }
   }
 }
