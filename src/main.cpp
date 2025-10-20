@@ -461,7 +461,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity", Hyprlang::FLOAT{0.85});
   HyprlandAPI::reloadConfig();
 
-  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.4"};
+  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.5"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
