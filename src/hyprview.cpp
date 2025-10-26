@@ -283,6 +283,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     if (!w->m_isMapped || w->isHidden())
       continue;
 
+    // Skip fullscreen windows to prevent problems and crashes
+    if (w->isFullscreen())
+      continue;
+
     if (!shouldIncludeWindow(w))
       continue;
 
@@ -687,6 +691,37 @@ void CHyprView::fullRender() {
 
     // Add a dim overlay that fades in with the overview
     g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, BG_DIM * currentAlpha), {});
+  }
+
+  // If no windows, show centered message
+  if (images.empty()) {
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    std::string emptyMessage = "Overview (no windows)";
+    int fontSize = 32;
+
+    auto textTexture = g_pHyprOpenGL->renderText(emptyMessage, CHyprColor(1.0, 1.0, 1.0, currentAlpha), fontSize, false, "sans-serif");
+
+    if (textTexture) {
+      double textWidth = textTexture->m_size.x * 0.8;
+      double textHeight = textTexture->m_size.y * 0.8;
+
+      double centerX = (fullMonitorSize.x - textWidth) / 2.0;
+      double centerY = (fullMonitorSize.y - textHeight) / 2.0;
+
+      CBox textBox = {centerX, centerY, textWidth, textHeight};
+
+      // Render subtle background box
+      CBox bgBox = {centerX - 30, centerY - 20, textWidth + 60, textHeight + 40};
+      CHyprOpenGLImpl::SRectRenderData bgData;
+      bgData.round = 12;
+      g_pHyprOpenGL->renderRect(bgBox, CHyprColor(0.0, 0.0, 0.0, 0.5 * currentAlpha), bgData);
+
+      // Render the text
+      CRegion damage{0, 0, INT16_MAX, INT16_MAX};
+      g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = currentAlpha, .round = 0});
+    }
+
+    return;
   }
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();

@@ -367,7 +367,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       return {.success = false, .error = "No matching monitor found"};
     }
 
-    // Close overview on target monitors only
+    // Close overview on target monitors - OFF always closes regardless of explicitlyOn
     for (auto &targetMonitor : targetMonitors) {
       auto it = g_pHyprViewInstances.find(targetMonitor);
       if (it != g_pHyprViewInstances.end() && it->second) {
