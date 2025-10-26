@@ -3,6 +3,7 @@
 #include "ViewGesture.hpp"
 #include "globals.hpp"
 #include "hyprview.hpp"
+#include "PlacementAlgorithms.hpp"
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/debug/Log.hpp>
@@ -13,6 +14,8 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprutils/string/ConstVarList.hpp>
 #include <unistd.h>
+#include <iostream>
+#include <fstream>
 
 using namespace Hyprutils::String;
 
@@ -87,28 +90,35 @@ struct DispatcherArgs {
   enum class Action { TOGGLE,
                       ON,
                       OFF,
-                      SELECT } action;
+                      SELECT,
+                      DEBUG } action;
   EWindowCollectionMode collectionMode;
+  std::string placement;
+  std::string targetMonitor;  // Empty = current monitor, otherwise specific monitor name
+  std::string error;
 };
 
 static DispatcherArgs parseDispatcherArgs(const std::string &arg) {
   DispatcherArgs result;
   result.action = DispatcherArgs::Action::TOGGLE;
   result.collectionMode = EWindowCollectionMode::CURRENT_ONLY;
+  result.placement = "grid"; // Default to the original algorithm
 
   // Convert to lowercase for case-insensitive comparison
   std::string lowerArg = arg;
   std::transform(lowerArg.begin(), lowerArg.end(), lowerArg.begin(), ::tolower);
 
-  // Determine action
-  if (lowerArg.empty() || lowerArg.find("toggle") != std::string::npos) {
-    result.action = DispatcherArgs::Action::TOGGLE;
-  } else if (lowerArg.find("on") != std::string::npos) {
-    result.action = DispatcherArgs::Action::ON;
-  } else if (lowerArg.find("off") != std::string::npos) {
-    result.action = DispatcherArgs::Action::OFF;
+  // Determine action - check debug first since it can be combined with other keywords
+  if (lowerArg.find("debug") != std::string::npos) {
+    result.action = DispatcherArgs::Action::DEBUG;
   } else if (lowerArg == "select") {
     result.action = DispatcherArgs::Action::SELECT;
+  } else if (lowerArg.find("off") != std::string::npos) {
+    result.action = DispatcherArgs::Action::OFF;
+  } else if (lowerArg.find("on") != std::string::npos) {
+    result.action = DispatcherArgs::Action::ON;
+  } else if (lowerArg.empty() || lowerArg.find("toggle") != std::string::npos) {
+    result.action = DispatcherArgs::Action::TOGGLE;
   }
 
   // Check for "all" and "special" keywords (order-independent)
@@ -126,7 +136,63 @@ static DispatcherArgs parseDispatcherArgs(const std::string &arg) {
     result.collectionMode = EWindowCollectionMode::CURRENT_ONLY;
   }
 
+  // Parse the placement
+  size_t placementPos = lowerArg.find("placement:");
+  if (placementPos != std::string::npos) {
+    size_t start = placementPos + 10; // length of "placement:"
+    size_t end = lowerArg.find(' ', start);
+    if (end == std::string::npos) {
+      end = lowerArg.length();
+    }
+    result.placement = lowerArg.substr(start, end - start);
+
+    // Validate placement algorithm
+    if (!result.placement.empty() &&
+        result.placement != "grid") {
+      result.error = "Invalid placement algorithm: " + result.placement + ". Valid options: grid";
+    }
+  }
+
+  // Parse the monitor target
+  size_t monitorPos = lowerArg.find("monitor:");
+  if (monitorPos != std::string::npos) {
+    size_t start = monitorPos + 8; // length of "monitor:"
+    size_t end = lowerArg.find(' ', start);
+    if (end == std::string::npos) {
+      end = lowerArg.length();
+    }
+    result.targetMonitor = arg.substr(start, end - start); // Use original arg for case-sensitive monitor name
+  }
+
   return result;
+}
+
+// Helper to get target monitor(s)
+static std::vector<PHLMONITOR> getTargetMonitors(const std::string& targetMonitorName) {
+  std::vector<PHLMONITOR> targets;
+
+  if (targetMonitorName.empty()) {
+    // No specific monitor - use ALL enabled monitors
+    for (auto &monitor : g_pCompositor->m_monitors) {
+      if (monitor->m_enabled && monitor->m_activeWorkspace) {
+        targets.push_back(monitor);
+      }
+    }
+  } else {
+    // Find monitor by name/description
+    for (auto &monitor : g_pCompositor->m_monitors) {
+      if (!monitor->m_enabled)
+        continue;
+
+      // Match by name or description
+      if (monitor->m_name == targetMonitorName ||
+          monitor->m_description.find(targetMonitorName) != std::string::npos) {
+        targets.push_back(monitor);
+      }
+    }
+  }
+
+  return targets;
 }
 
 static SDispatchResult onHyprviewDispatcher(std::string arg) {
@@ -141,6 +207,11 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   // Parse arguments
   DispatcherArgs parsedArgs = parseDispatcherArgs(arg);
 
+  // Check for parsing errors
+  if (!parsedArgs.error.empty()) {
+    return {.success = false, .error = parsedArgs.error};
+  }
+
   // Handle SELECT action
   if (parsedArgs.action == DispatcherArgs::Action::SELECT) {
     auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
@@ -154,21 +225,161 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     return {};
   }
 
+  // Handle DEBUG action
+  if (parsedArgs.action == DispatcherArgs::Action::DEBUG) {
+    auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
+    if (!PMONITOR) {
+      return {.success = false, .error = "No active monitor"};
+    }
+
+    // Write to a file instead of stdout since Hyprland doesn't have terminal attached
+    std::string debugFile = "/tmp/hyprview_debug.txt";
+    std::ofstream out(debugFile);
+
+    if (!out.is_open()) {
+      return {.success = false, .error = "Failed to open debug file"};
+    }
+
+    out << "\n========== HYPRVIEW DEBUG MODE ==========\n";
+    out << "Monitor: " << PMONITOR->m_description << "\n";
+    out << "Collection mode: " << (int)parsedArgs.collectionMode << "\n";
+    out << "Placement algorithm: " << parsedArgs.placement << "\n";
+
+    // Get monitor dimensions
+    Vector2D reservedTopLeft = PMONITOR->m_reservedTopLeft;
+    Vector2D reservedBottomRight = PMONITOR->m_reservedBottomRight;
+    Vector2D fullMonitorSize = PMONITOR->m_pixelSize;
+    Vector2D availableSize = {
+        fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x,
+        fullMonitorSize.y - reservedTopLeft.y - reservedBottomRight.y
+    };
+
+    out << "\nMonitor Information:\n";
+    out << "  Full size: " << fullMonitorSize.x << "x" << fullMonitorSize.y << "\n";
+    out << "  Reserved top-left: " << reservedTopLeft.x << "x" << reservedTopLeft.y << "\n";
+    out << "  Reserved bottom-right: " << reservedBottomRight.x << "x" << reservedBottomRight.y << "\n";
+    out << "  Available size: " << availableSize.x << "x" << availableSize.y << "\n";
+
+    // Collect windows
+    auto activeWorkspace = PMONITOR->m_activeWorkspace;
+    if (!activeWorkspace) {
+      out.close();
+      return {.success = false, .error = "No active workspace"};
+    }
+
+    auto shouldIncludeWindow = [&](PHLWINDOW w) -> bool {
+      auto windowWorkspace = w->m_workspace;
+      if (!windowWorkspace)
+        return false;
+
+      auto windowMonitor = w->m_monitor.lock();
+      if (!windowMonitor || windowMonitor != PMONITOR)
+        return false;
+
+      switch (parsedArgs.collectionMode) {
+      case EWindowCollectionMode::CURRENT_ONLY:
+        return windowWorkspace == activeWorkspace;
+      case EWindowCollectionMode::ALL_WORKSPACES:
+        return !windowWorkspace->m_isSpecialWorkspace;
+      case EWindowCollectionMode::WITH_SPECIAL:
+        return windowWorkspace == activeWorkspace || windowWorkspace->m_isSpecialWorkspace;
+      case EWindowCollectionMode::ALL_WITH_SPECIAL:
+        return true;
+      }
+      return false;
+    };
+
+    std::vector<PHLWINDOW> windowsToRender;
+    for (auto &w : g_pCompositor->m_windows) {
+      if (!w->m_isMapped || w->isHidden())
+        continue;
+      if (!shouldIncludeWindow(w))
+        continue;
+      windowsToRender.push_back(w);
+    }
+
+    out << "\nWindows (" << windowsToRender.size() << " total):\n";
+
+    // Convert to WindowInfo
+    std::vector<WindowInfo> windowInfos;
+    windowInfos.reserve(windowsToRender.size());
+    for (size_t i = 0; i < windowsToRender.size(); ++i) {
+      auto& w = windowsToRender[i];
+      windowInfos.push_back({
+        i,
+        w->m_realSize->value().x,
+        w->m_realSize->value().y
+      });
+      out << "  [" << i << "] \"" << w->m_title << "\" - "
+          << w->m_realSize->value().x << "x" << w->m_realSize->value().y
+          << " (WS: " << w->m_workspace->m_id << ")\n";
+    }
+
+    // Get margin from config
+    static auto *const *PMARGIN = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:margin")->getDataStaticPtr();
+    int margin = **PMARGIN;
+
+    // Prepare screen info
+    ScreenInfo screenInfo = {
+      availableSize.x,
+      availableSize.y,
+      reservedTopLeft.x,
+      reservedTopLeft.y,
+      (double)margin
+    };
+
+    // Call placement algorithm
+    PlacementResult placementResult = gridPlacement(windowInfos, screenInfo);
+
+    out << "\nPlacement Result:\n";
+    out << "  Grid: " << placementResult.gridCols << "x" << placementResult.gridRows << "\n";
+    out << "  Margin: " << margin << "px\n";
+
+    out << "\nTile Positions:\n";
+    for (size_t i = 0; i < placementResult.tiles.size(); ++i) {
+      const auto& tile = placementResult.tiles[i];
+      auto& w = windowsToRender[i];
+      out << "  [" << i << "] \"" << w->m_title << "\"\n"
+          << "      Position: (" << tile.x << ", " << tile.y << ")\n"
+          << "      Size: " << tile.width << "x" << tile.height << "\n";
+    }
+
+    out << "========== END DEBUG ==========\n\n";
+    out.close();
+
+    // Print to stdout as well for good measure
+    std::cout << "Debug output written to: " << debugFile << std::endl;
+    std::cout << "View with: cat " << debugFile << std::endl;
+    std::cout.flush();
+
+    // Also show where to find it
+    std::string msg = "Debug output: cat /tmp/hyprview_debug.txt";
+    system(("notify-send 'HyprView Debug' '" + msg + "'").c_str());
+
+    return {};
+  }
+
   // Handle OFF action
   if (parsedArgs.action == DispatcherArgs::Action::OFF) {
+    auto targetMonitors = getTargetMonitors(parsedArgs.targetMonitor);
 
-    for (auto &[monitor, instance] : g_pHyprViewInstances) {
-      if (instance) {
+    if (targetMonitors.empty()) {
+      return {.success = false, .error = "No matching monitor found"};
+    }
 
-        instance->close();
+    // Close overview on target monitors only
+    for (auto &targetMonitor : targetMonitors) {
+      auto it = g_pHyprViewInstances.find(targetMonitor);
+      if (it != g_pHyprViewInstances.end() && it->second) {
+        it->second->close();
       }
     }
 
     g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
 
+    // Clean up closed instances
     for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end();) {
       if (it->second && it->second->closing) {
-
         it = g_pHyprViewInstances.erase(it);
       } else {
         ++it;
@@ -182,19 +393,26 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   if (parsedArgs.action == DispatcherArgs::Action::ON) {
     Debug::log(LOG, "[hyprview] 'on' command called with mode={}", (int)parsedArgs.collectionMode);
 
-    // If already active, do nothing
-    if (!g_pHyprViewInstances.empty()) {
-      Debug::log(LOG, "[hyprview] Overview already active, ignoring 'on' command");
-      return {};
+    auto targetMonitors = getTargetMonitors(parsedArgs.targetMonitor);
+
+    if (targetMonitors.empty()) {
+      return {.success = false, .error = "No matching monitor found"};
     }
 
-    // Open overview with specified mode
+    // Open overview on target monitors only
     Debug::log(LOG, "[hyprview] Opening overview with mode={}", (int)parsedArgs.collectionMode);
     renderingOverview = true;
-    for (auto &monitor : g_pCompositor->m_monitors) {
-      if (monitor->m_enabled && monitor->m_activeWorkspace) {
-        Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
-        g_pHyprViewInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
+    for (auto &targetMonitor : targetMonitors) {
+      if (targetMonitor->m_enabled && targetMonitor->m_activeWorkspace) {
+        // Check if already active on this monitor
+        auto it = g_pHyprViewInstances.find(targetMonitor);
+        if (it != g_pHyprViewInstances.end() && it->second) {
+          Debug::log(LOG, "[hyprview] Overview already active on monitor {}, skipping", targetMonitor->m_description);
+          continue;
+        }
+
+        Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={} and placement={}", targetMonitor->m_description, (int)parsedArgs.collectionMode, parsedArgs.placement);
+        g_pHyprViewInstances[targetMonitor] = std::make_unique<CHyprView>(targetMonitor, targetMonitor->m_activeWorkspace, false, parsedArgs.collectionMode, parsedArgs.placement, true);
       }
     }
     renderingOverview = false;
@@ -205,17 +423,44 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
   if (parsedArgs.action == DispatcherArgs::Action::TOGGLE) {
     Debug::log(LOG, "[hyprview] Toggle called with mode={}", (int)parsedArgs.collectionMode);
 
-    bool hasAnyOverview = !g_pHyprViewInstances.empty();
+    auto targetMonitors = getTargetMonitors(parsedArgs.targetMonitor);
 
-    if (hasAnyOverview) {
-      // Close all overviews on all monitors
+    if (targetMonitors.empty()) {
+      return {.success = false, .error = "No matching monitor found"};
+    }
 
-      Debug::log(LOG, "[hyprview] Toggle: closing all overviews ({} instances)", g_pHyprViewInstances.size());
+    // Check if any of the target monitors has an overview active (that can be toggled)
+    // Monitors with explicitlyOn=true can ONLY be toggled if specifically targeted
+    bool hasOverviewOnTarget = false;
+    for (auto &targetMonitor : targetMonitors) {
+      auto it = g_pHyprViewInstances.find(targetMonitor);
+      if (it != g_pHyprViewInstances.end() && it->second) {
+        // Count as toggleable if:
+        // - Monitor was explicitly specified (can toggle even if explicitlyOn)
+        // - OR instance is not explicitly on (general toggle affects it)
+        bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty();
+        bool canToggle = isExplicitlyTargeted || !it->second->explicitlyOn;
 
-      for (auto &[monitor, instance] : g_pHyprViewInstances) {
-        if (instance && !instance->closing) {
+        if (canToggle) {
+          hasOverviewOnTarget = true;
+          break;
+        }
+      }
+    }
 
-          instance->close();
+    if (hasOverviewOnTarget) {
+      // Close overviews on target monitors (only those that can be toggled)
+      Debug::log(LOG, "[hyprview] Toggle: closing overviews on toggleable target monitors");
+
+      for (auto &targetMonitor : targetMonitors) {
+        auto it = g_pHyprViewInstances.find(targetMonitor);
+        if (it != g_pHyprViewInstances.end() && it->second && !it->second->closing) {
+          bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty();
+          bool canToggle = isExplicitlyTargeted || !it->second->explicitlyOn;
+
+          if (canToggle) {
+            it->second->close();
+          }
         }
       }
 
@@ -223,7 +468,6 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
       for (auto it = g_pHyprViewInstances.begin(); it != g_pHyprViewInstances.end();) {
         if (it->second && it->second->closing) {
-
           it = g_pHyprViewInstances.erase(it);
         } else {
           ++it;
@@ -231,14 +475,19 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
       }
 
     } else {
-      // Open overview on all enabled monitors with specified collection mode
-      Debug::log(LOG, "[hyprview] Toggle: opening overviews on all monitors with mode={}", (int)parsedArgs.collectionMode);
+      // Open overview on target monitors
+      Debug::log(LOG, "[hyprview] Toggle: opening overviews on target monitors with mode={}", (int)parsedArgs.collectionMode);
 
       renderingOverview = true;
-      for (auto &monitor : g_pCompositor->m_monitors) {
-        if (monitor->m_enabled && monitor->m_activeWorkspace) {
-          Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={}", monitor->m_description, (int)parsedArgs.collectionMode);
-          g_pHyprViewInstances[monitor] = std::make_unique<CHyprView>(monitor, monitor->m_activeWorkspace, false, parsedArgs.collectionMode);
+      for (auto &targetMonitor : targetMonitors) {
+        if (targetMonitor->m_enabled && targetMonitor->m_activeWorkspace) {
+          // Do not open if an instance already exists to avoid overwriting explicitly-on overviews
+          if (g_pHyprViewInstances.count(targetMonitor)) {
+              Debug::log(LOG, "[hyprview] Toggle: skipping monitor {} as it already has an active overview", targetMonitor->m_description);
+              continue;
+          }
+          Debug::log(LOG, "[hyprview] Creating overview for monitor {} with mode={} and placement={}", targetMonitor->m_description, (int)parsedArgs.collectionMode, parsedArgs.placement);
+          g_pHyprViewInstances[targetMonitor] = std::make_unique<CHyprView>(targetMonitor, targetMonitor->m_activeWorkspace, false, parsedArgs.collectionMode, parsedArgs.placement);
         }
       }
       renderingOverview = false;

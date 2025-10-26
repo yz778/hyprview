@@ -1,14 +1,19 @@
 # hyprview
 
-`hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in an adaptive grid layout for easy navigation.
+`hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in a configurable grid layout for easy navigation.
 
-The grid layout adapts to the number of windows:
+The grid layout adapts to the number of windows and the selected placement algorithm:
 
-- **1 window:** Displayed at 80% screen size, centered
-- **2 windows:** 2×1 grid
-- **3-4 windows:** 2×2 grid
-- **5-9 windows:** 3×3 grid
-- **10+ windows:** 4×N grid
+- **`grid` (default):** Adaptive layout that follows the original algorithm:
+  - **1 window:** Displayed at 80% screen size, centered
+  - **2 windows:** 2×1 grid
+  - **3-4 windows:** 2×2 grid
+  - **5-9 windows:** 3×3 grid
+  - **10+ windows:** 4×N grid
+
+- **`grid2` (row-based packing):** Dynamically fills each row with windows before moving to the next row, optimizing horizontal space usage.
+
+- **`grid3` (optimal rectangle):** Calculates the most "square-like" grid layout by finding factor pairs that best match the monitor's aspect ratio, minimizing wasted space.
 
 https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
@@ -61,6 +66,10 @@ bind = SUPER, S, hyprview:toggle, all special
 
 # Close the overview
 bind = SUPER, ESC, hyprview:toggle, off
+
+# Toggle overview with different placement algorithms
+bind = SUPER, G, hyprview:toggle, placement:grid2
+bind = SUPER, T, hyprview:toggle, placement:grid3
 ```
 
 ### Dispatchers
@@ -75,7 +84,11 @@ The `hyprview` dispatcher uses a flexible argument format: `hyprview:<action>[,<
   * `off`: Turn overview off
   * `all`: Show windows from all workspaces on the monitor.
   * `special`: Include windows from the special (scratchpad) workspace.
-  * Combining them (e.g., `all special`) works as expected.
+  * `placement:<algorithm>`: Select the grid placement algorithm. Available algorithms:
+    * `placement:grid` (default): Original adaptive layout
+    * `placement:grid2`: Row-based packing algorithm
+    * `placement:grid3`: Optimal rectangle algorithm
+  * Combining them (e.g., `all special placement:grid2`) works as expected.
 
 ### Gestures
 

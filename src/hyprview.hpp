@@ -36,7 +36,7 @@ void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
-  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
+  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY, const std::string& placement = "grid", bool explicitOn = false);
   ~CHyprView();
 
   void render();
@@ -53,7 +53,7 @@ public:
   // close without a selection
   void close();
   void selectHoveredWindow();
-  
+
   // Accurate mouse-to-tile calculation
   int getWindowIndexFromMousePos(const Vector2D& mousePos);
   bool isMouseOverValidTile(const Vector2D& mousePos);
@@ -66,6 +66,7 @@ public:
   bool m_isSwiping = false;
   bool closing = false;
   bool swipe = false;
+  bool explicitlyOn = false;  // True if turned on with :on command (sticky mode)
 
 private:
   void redrawID(int id, bool forcelowres = false);
@@ -74,12 +75,11 @@ private:
   void fullRender();
   void renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE);
   void captureBackground();
+  void setupWindowImages(std::vector<PHLWINDOW> &windowsToRender);
 
   CFramebuffer bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
 
-  int SIDE_LENGTH = 3; // Grid columns
-  int GRID_ROWS = 3;   // Grid rows
   int MARGIN = 15;     // Margin around each grid tile
 
   CHyprColor ACTIVE_BORDER_COLOR;
@@ -120,9 +120,11 @@ private:
 
   PHLWORKSPACE startedOn;
   EWindowCollectionMode m_collectionMode;
+  std::string m_placement;
 
   PHLANIMVAR<Vector2D> size;
   PHLANIMVAR<Vector2D> pos;
+  PHLANIMVAR<float> alpha;  // Fade animation for overview
 
   SP<HOOK_CALLBACK_FN> mouseMoveHook;
   SP<HOOK_CALLBACK_FN> mouseButtonHook;
@@ -134,7 +136,6 @@ private:
 
   friend class CHyprViewPassElement;
   friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
-  friend void gridPlacement(CHyprView*, std::vector<PHLWINDOW> &);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
