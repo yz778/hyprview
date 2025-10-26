@@ -153,16 +153,23 @@ void CHyprView::captureBackground() {
   if (!activeWorkspace)
     return;
 
-  // Temporarily hide all windows on this monitor
+  // Temporarily hide all windows that are visible on this monitor
+  // This includes windows assigned to this monitor AND windows from other monitors that "leak" into this one
   std::vector<PHLWINDOW> hiddenWindows;
   std::vector<bool> originalHiddenStates;
 
+  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, MONITOR_SIZE.x, MONITOR_SIZE.y};
+
   for (auto &w : g_pCompositor->m_windows) {
-    if (!w->m_isMapped || w->isHidden() || w->m_monitor.lock() != monitor)
+    if (!w->m_isMapped || w->isHidden())
       continue;
 
-    // Hide windows from current and special workspaces temporarily
-    if (w->m_workspace == activeWorkspace || w->m_workspace->m_isSpecialWorkspace) {
+    // Check if window geometry intersects with this monitor
+    CBox windowBox = {w->m_realPosition->value().x, w->m_realPosition->value().y,
+                      w->m_realSize->value().x, w->m_realSize->value().y};
+
+    // Check if window overlaps with this monitor using overlaps() method
+    if (windowBox.overlaps(monitorBox)) {
       hiddenWindows.push_back(w);
       originalHiddenStates.push_back(w->m_hidden);
       w->m_hidden = true;
