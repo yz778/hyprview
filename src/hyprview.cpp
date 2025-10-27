@@ -460,10 +460,16 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return;
     }
 
-    // Normal mode: cancel click and close overview
+    // Normal mode: cancel click, select window, and close ALL overviews except forced ones
     info.cancelled = true;
     selectHoveredWindow();
-    close();
+
+    // Close all overview instances except those with explicitlyOn=true
+    for (auto &[monitor, instance] : g_pHyprViewInstances) {
+      if (instance && !instance->explicitlyOn) {
+        instance->close();
+      }
+    }
   };
 
   auto onMouseAxis = [this](void *self, SCallbackInfo &info, std::any param) {
