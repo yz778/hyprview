@@ -346,8 +346,20 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     (double)MARGIN       // margin
   };
 
-  // Call the placement function
-  PlacementResult placementResult = gridPlacement(windowInfos, screenInfo);
+  // Call the placement function based on m_placement
+  PlacementResult placementResult;
+  if (m_placement == "spiral") {
+    placementResult = spiralPlacement(windowInfos, screenInfo);
+  } else if (m_placement == "flow") {
+    placementResult = flowPlacement(windowInfos, screenInfo);
+  } else if (m_placement == "adaptive") {
+    placementResult = adaptivePlacement(windowInfos, screenInfo);
+  } else if (m_placement == "wide") {
+    placementResult = widePlacement(windowInfos, screenInfo);
+  } else {
+    // Default to grid placement
+    placementResult = gridPlacement(windowInfos, screenInfo);
+  }
 
   // Apply placement results to images
   images.resize(placementResult.tiles.size());

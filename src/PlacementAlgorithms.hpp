@@ -36,3 +36,7 @@ struct PlacementResult {
 // These only perform mathematical calculations, no Hyprland/window operations
 
 PlacementResult gridPlacement(const std::vector<WindowInfo>& windows, const ScreenInfo& screen);
+PlacementResult spiralPlacement(const std::vector<WindowInfo>& windows, const ScreenInfo& screen);
+PlacementResult flowPlacement(const std::vector<WindowInfo>& windows, const ScreenInfo& screen);   // Proportional, row-based flow
+PlacementResult adaptivePlacement(const std::vector<WindowInfo>& windows, const ScreenInfo& screen); // Individual scaling with hierarchy
+PlacementResult widePlacement(const std::vector<WindowInfo>& windows, const ScreenInfo& screen);     // Wide, uniform grid

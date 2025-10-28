@@ -148,8 +148,12 @@ static DispatcherArgs parseDispatcherArgs(const std::string &arg) {
 
     // Validate placement algorithm
     if (!result.placement.empty() &&
-        result.placement != "grid") {
-      result.error = "Invalid placement algorithm: " + result.placement + ". Valid options: grid";
+        result.placement != "grid" &&
+        result.placement != "spiral" &&
+        result.placement != "flow" &&
+        result.placement != "adaptive" &&
+        result.placement != "wide") {
+      result.error = "Invalid placement algorithm: " + result.placement + ". Valid options: grid, spiral, flow, adaptive, wide";
     }
   }
 
@@ -329,7 +333,18 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     };
 
     // Call placement algorithm
-    PlacementResult placementResult = gridPlacement(windowInfos, screenInfo);
+    PlacementResult placementResult;
+    if (parsedArgs.placement == "spiral") {
+      placementResult = spiralPlacement(windowInfos, screenInfo);
+    } else if (parsedArgs.placement == "flow") {
+      placementResult = flowPlacement(windowInfos, screenInfo);
+    } else if (parsedArgs.placement == "adaptive") {
+      placementResult = adaptivePlacement(windowInfos, screenInfo);
+    } else if (parsedArgs.placement == "wide") {
+      placementResult = widePlacement(windowInfos, screenInfo);
+    } else {
+      placementResult = gridPlacement(windowInfos, screenInfo);
+    }
 
     out << "\nPlacement Result:\n";
     out << "  Grid: " << placementResult.gridCols << "x" << placementResult.gridRows << "\n";
@@ -710,7 +725,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity", Hyprlang::FLOAT{0.85});
   HyprlandAPI::reloadConfig();
 
-  return {"hyprview", "A plugin for an GNOME style overview", "yz778", "0.1.5"};
+  return {"hyprview", "Window overview with multiple placement algorithms", "yz778", "0.1.5"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {

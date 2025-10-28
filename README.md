@@ -1,19 +1,18 @@
 # hyprview
 
-`hyprview` is a Hyprland plugin that provides a GNOME-style overview. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them in a configurable grid layout for easy navigation.
+`hyprview` is a Hyprland plugin that provides a window overview with multiple placement algorithms. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them using various layout algorithms for easy navigation.
 
-The grid layout adapts to the number of windows and the selected placement algorithm:
+The plugin includes five different placement algorithms to suit different preferences:
 
-- **`grid` (default):** Adaptive layout that follows the original algorithm:
-  - **1 window:** Displayed at 80% screen size, centered
-  - **2 windows:** 2×1 grid
-  - **3-4 windows:** 2×2 grid
-  - **5-9 windows:** 3×3 grid
-  - **10+ windows:** 4×N grid
+- **`grid` (default):** Efficient dynamic grid that adapts to window count and screen aspect ratio, packing windows without wasted space.
 
-- **`grid2` (row-based packing):** Dynamically fills each row with windows before moving to the next row, optimizing horizontal space usage.
+- **`spiral`:** Arranges windows in a spiral pattern starting from the center, creating a unique and balanced layout.
 
-- **`grid3` (optimal rectangle):** Calculates the most "square-like" grid layout by finding factor pairs that best match the monitor's aspect ratio, minimizing wasted space.
+- **`flow`:** Proportional row-based layout that maintains relative window sizes and distributes them evenly across rows to avoid bunching small or large windows together.
+
+- **`adaptive`:** Individual scaling with visual hierarchy - maintains each window's aspect ratio while applying subtle size variations (larger windows scaled down slightly, smaller windows boosted) for a dynamic, organic layout.
+
+- **`wide`:** Wide horizontal grid with uniform tile sizes, prioritizing more columns and fewer rows with generous spacing between tiles.
 
 https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
@@ -68,8 +67,10 @@ bind = SUPER, S, hyprview:toggle, all special
 bind = SUPER, ESC, hyprview:toggle, off
 
 # Toggle overview with different placement algorithms
-bind = SUPER, G, hyprview:toggle, placement:grid2
-bind = SUPER, T, hyprview:toggle, placement:grid3
+bind = SUPER, G, hyprview:toggle, placement:spiral
+bind = SUPER, T, hyprview:toggle, placement:flow
+bind = SUPER, A, hyprview:toggle, placement:adaptive
+bind = SUPER, W, hyprview:toggle, placement:wide
 ```
 
 ### Dispatchers
@@ -84,11 +85,13 @@ The `hyprview` dispatcher uses a flexible argument format: `hyprview:<action>[,<
   * `off`: Turn overview off
   * `all`: Show windows from all workspaces on the monitor.
   * `special`: Include windows from the special (scratchpad) workspace.
-  * `placement:<algorithm>`: Select the grid placement algorithm. Available algorithms:
-    * `placement:grid` (default): Original adaptive layout
-    * `placement:grid2`: Row-based packing algorithm
-    * `placement:grid3`: Optimal rectangle algorithm
-  * Combining them (e.g., `all special placement:grid2`) works as expected.
+  * `placement:<algorithm>`: Select the placement algorithm. Available algorithms:
+    * `placement:grid` (default): Efficient dynamic grid
+    * `placement:spiral`: Spiral pattern from center
+    * `placement:flow`: Proportional row-based flow
+    * `placement:adaptive`: Individual scaling with hierarchy
+    * `placement:wide`: Wide horizontal uniform grid
+  * Combining them (e.g., `all special placement:flow`) works as expected.
 
 ### Gestures
 
