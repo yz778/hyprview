@@ -29,14 +29,17 @@ class CMonitor;
 class CHyprView;
 
 // Forward declare friend functions
-CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
+CHyprView *findInstanceForAnimation(
+    WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 // Function declaration for damageMonitor used by placement algorithms
 void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
-  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY, const std::string& placement = "grid", bool explicitOn = false);
+  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false,
+            EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY,
+            const std::string &placement = "grid", bool explicitOn = false);
   ~CHyprView();
 
   void render();
@@ -55,8 +58,8 @@ public:
   void selectHoveredWindow();
 
   // Accurate mouse-to-tile calculation
-  int getWindowIndexFromMousePos(const Vector2D& mousePos);
-  bool isMouseOverValidTile(const Vector2D& mousePos);
+  int getWindowIndexFromMousePos(const Vector2D &mousePos);
+  bool isMouseOverValidTile(const Vector2D &mousePos);
   void updateHoverState(int newIndex);
 
   bool blockOverviewRendering = false;
@@ -66,21 +69,22 @@ public:
   bool m_isSwiping = false;
   bool closing = false;
   bool swipe = false;
-  bool explicitlyOn = false;  // True if turned on with :on command (sticky mode)
+  bool explicitlyOn = false; // True if turned on with :on command (sticky mode)
 
 private:
   void redrawID(int id, bool forcelowres = false);
   void redrawAll(bool forcelowres = false);
   void onWorkspaceChange();
   void fullRender();
-  void renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE);
+  void renderWorkspaceIndicator(size_t i, const CBox &borderBox,
+                                const CRegion &damage, const bool ISACTIVE);
   void captureBackground();
   void setupWindowImages(std::vector<PHLWINDOW> &windowsToRender);
 
   CFramebuffer bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
 
-  int MARGIN = 15;     // Margin around each grid tile
+  int MARGIN = 15; // Margin around each grid tile
 
   CHyprColor ACTIVE_BORDER_COLOR;
   CHyprColor INACTIVE_BORDER_COLOR;
@@ -124,7 +128,7 @@ private:
 
   PHLANIMVAR<Vector2D> size;
   PHLANIMVAR<Vector2D> pos;
-  PHLANIMVAR<float> alpha;  // Fade animation for overview
+  PHLANIMVAR<float> alpha; // Fade animation for overview
 
   SP<HOOK_CALLBACK_FN> mouseMoveHook;
   SP<HOOK_CALLBACK_FN> mouseButtonHook;
@@ -135,8 +139,10 @@ private:
   bool swipeWasCommenced = false;
 
   friend class CHyprViewPassElement;
-  friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
+  friend CHyprView * ::findInstanceForAnimation(
+      WP<Hyprutils::Animation::CBaseAnimatedVariable>);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
-inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHyprViewInstances;
+inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>>
+    g_pHyprViewInstances;

@@ -18,9 +18,11 @@
 #include "PlacementAlgorithms.hpp"
 
 // Helper to find the CHyprView instance for a given animation variable
-CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
+CHyprView *findInstanceForAnimation(
+    WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
   for (auto &[monitor, instance] : g_pHyprViewInstances) {
-    if (instance && (instance->size.get() == thisptr.lock().get() || instance->pos.get() == thisptr.lock().get())) {
+    if (instance && (instance->size.get() == thisptr.lock().get() ||
+                     instance->pos.get() == thisptr.lock().get())) {
       return instance.get();
     }
   }
@@ -39,8 +41,12 @@ CHyprView::~CHyprView() {
 
   for (const auto &image : images) {
     auto window = image.pWindow.lock();
-    if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
-      Debug::log(LOG, "[hyprview] Restoring window '{}' from workspace {} to {}", window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+    if (window && image.originalWorkspace &&
+        window->m_workspace != image.originalWorkspace) {
+      Debug::log(LOG,
+                 "[hyprview] Restoring window '{}' from workspace {} to {}",
+                 window->m_title, window->m_workspace->m_id,
+                 image.originalWorkspace->m_id);
       window->moveToWorkspace(image.originalWorkspace);
     }
   }
@@ -72,12 +78,14 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
   for (auto &window : windowsToRender) {
     if (window->m_workspace != pMonitor->m_activeWorkspace) {
       Debug::log(LOG, "[hyprview] Moving window '{}' from workspace {} to {}",
-                 window->m_title, window->m_workspace->m_id, pMonitor->m_activeWorkspace->m_id);
+                 window->m_title, window->m_workspace->m_id,
+                 pMonitor->m_activeWorkspace->m_id);
       window->moveToWorkspace(pMonitor->m_activeWorkspace);
     }
   }
 
-  // Render all windows to framebuffers using the box positions set by placement algorithm
+  // Render all windows to framebuffers using the box positions set by placement
+  // algorithm
   for (size_t i = 0; i < images.size(); ++i) {
     SWindowImage &image = images[i];
     auto &window = windowsToRender[i];
@@ -87,8 +95,10 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     image.originalSize = window->m_realSize->value();
     image.originalWorkspace = originalWorkspaces[window];
 
-    const auto RENDERSIZE = (window->m_realSize->value() * pMonitor->m_scale).floor();
-    image.fb.alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y), pMonitor->m_output->state->state().drmFormat);
+    const auto RENDERSIZE =
+        (window->m_realSize->value() * pMonitor->m_scale).floor();
+    image.fb.alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y),
+                   pMonitor->m_output->state->state().drmFormat);
 
     CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
 
@@ -97,10 +107,12 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     // Temporarily move window to monitor position for rendering
     window->m_realPosition->setValue(pMonitor->m_position);
 
-    g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
+    g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage,
+                                 RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
 
     if (window && window->m_isMapped) {
-      g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(), false, RENDER_PASS_MAIN, false, false);
+      g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(),
+                                    false, RENDER_PASS_MAIN, false, false);
     }
 
     g_pHyprOpenGL->m_renderData.blockScreenShader = true;
@@ -114,11 +126,19 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
   // Create smooth fade-in animation
-  g_pAnimationManager->createAnimation(1.0f, alpha, g_pConfigManager->getAnimationPropertyConfig("fadeIn"), AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation(
+      1.0f, alpha, g_pConfigManager->getAnimationPropertyConfig("fadeIn"),
+      AVARDAMAGE_NONE);
 
   // Keep size and pos for potential future use (or swipe gestures)
-  g_pAnimationManager->createAnimation(fullMonitorSize, size, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
-  g_pAnimationManager->createAnimation(Vector2D{0, 0}, pos, g_pConfigManager->getAnimationPropertyConfig("windowsMove"), AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation(
+      fullMonitorSize, size,
+      g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      AVARDAMAGE_NONE);
+  g_pAnimationManager->createAnimation(
+      Vector2D{0, 0}, pos,
+      g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      AVARDAMAGE_NONE);
 
   alpha->setUpdateCallback(damageMonitor);
   size->setUpdateCallback(damageMonitor);
@@ -129,7 +149,7 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     *size = fullMonitorSize;
     *pos = {0, 0};
   } else {
-    *alpha = 0.0f;  // Start invisible for swipe
+    *alpha = 0.0f; // Start invisible for swipe
   }
 
   // Set openedID to first window (for swipe gestures)
@@ -154,19 +174,22 @@ void CHyprView::captureBackground() {
     return;
 
   // Temporarily hide all windows that are visible on this monitor
-  // This includes windows assigned to this monitor AND windows from other monitors that "leak" into this one
+  // This includes windows assigned to this monitor AND windows from other
+  // monitors that "leak" into this one
   std::vector<PHLWINDOW> hiddenWindows;
   std::vector<bool> originalHiddenStates;
 
-  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, MONITOR_SIZE.x, MONITOR_SIZE.y};
+  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y,
+                     MONITOR_SIZE.x, MONITOR_SIZE.y};
 
   for (auto &w : g_pCompositor->m_windows) {
     if (!w->m_isMapped || w->isHidden())
       continue;
 
     // Check if window geometry intersects with this monitor
-    CBox windowBox = {w->m_realPosition->value().x, w->m_realPosition->value().y,
-                      w->m_realSize->value().x, w->m_realSize->value().y};
+    CBox windowBox = {w->m_realPosition->value().x,
+                      w->m_realPosition->value().y, w->m_realSize->value().x,
+                      w->m_realSize->value().y};
 
     // Check if window overlaps with this monitor using overlaps() method
     if (windowBox.overlaps(monitorBox)) {
@@ -178,9 +201,13 @@ void CHyprView::captureBackground() {
 
   // Capture the background with hidden windows
   CRegion fullRegion{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y};
-  g_pHyprRenderer->beginRender(monitor, fullRegion, RENDER_MODE_FULL_FAKE, nullptr, &bgFramebuffer);
-  // Render the workspace with hidden windows (showing just the wallpaper/background)
-  g_pHyprRenderer->renderWorkspace(monitor, activeWorkspace, std::chrono::steady_clock::now(), CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
+  g_pHyprRenderer->beginRender(monitor, fullRegion, RENDER_MODE_FULL_FAKE,
+                               nullptr, &bgFramebuffer);
+  // Render the workspace with hidden windows (showing just the
+  // wallpaper/background)
+  g_pHyprRenderer->renderWorkspace(
+      monitor, activeWorkspace, std::chrono::steady_clock::now(),
+      CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
   g_pHyprRenderer->endRender();
 
   // Restore all windows to original hidden state
@@ -191,7 +218,11 @@ void CHyprView::captureBackground() {
   bgCaptured = true;
 }
 
-CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_, EWindowCollectionMode mode, const std::string& placement, bool explicitOn) : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_), m_collectionMode(mode), m_placement(placement), explicitlyOn(explicitOn) {
+CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
+                     EWindowCollectionMode mode, const std::string &placement,
+                     bool explicitOn)
+    : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_),
+      m_collectionMode(mode), m_placement(placement), explicitlyOn(explicitOn) {
 
   // Capture the background BEFORE moving windows for the overview
   captureBackground();
@@ -206,21 +237,50 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   visualHoveredIndex = -1;
 
   auto origWindow = originalFocusedWindow.lock();
-  Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}", (void *)origWindow.get());
+  Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}",
+             (void *)origWindow.get());
 
-  static auto *const *PMARGIN = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:margin")->getDataStaticPtr();
+  static auto *const *PMARGIN =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:margin")
+          ->getDataStaticPtr();
 
   MARGIN = **PMARGIN;
 
-  static auto *const *PACTIVEBORDERCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:active_border_color")->getDataStaticPtr();
-  static auto *const *PINACTIVEBORDERCOL = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color")->getDataStaticPtr();
-  static auto *const *PBORDERWIDTH = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:border_width")->getDataStaticPtr();
-  static auto *const *PBORDERRADIUS = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:border_radius")->getDataStaticPtr();
-  static auto *const *PBGDIM = (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:bg_dim")->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORENABLED = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_enabled")->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORFONTSIZE = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_font_size")->getDataStaticPtr();
-  static auto PWORKSPACEINDICATORPOSITION_VAL = HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_position");
-  static auto *const *PWORKSPACEINDICATORBGOPACITY = (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")->getDataStaticPtr();
+  static auto *const *PACTIVEBORDERCOL =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:active_border_color")
+          ->getDataStaticPtr();
+  static auto *const *PINACTIVEBORDERCOL =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:inactive_border_color")
+          ->getDataStaticPtr();
+  static auto *const *PBORDERWIDTH =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:border_width")
+          ->getDataStaticPtr();
+  static auto *const *PBORDERRADIUS =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:border_radius")
+          ->getDataStaticPtr();
+  static auto *const *PBGDIM =
+      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:bg_dim")
+          ->getDataStaticPtr();
+  static auto *const *PWORKSPACEINDICATORENABLED =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:workspace_indicator_enabled")
+          ->getDataStaticPtr();
+  static auto *const *PWORKSPACEINDICATORFONTSIZE =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:workspace_indicator_font_size")
+          ->getDataStaticPtr();
+  static auto PWORKSPACEINDICATORPOSITION_VAL = HyprlandAPI::getConfigValue(
+      PHANDLE, "plugin:hyprview:workspace_indicator_position");
+  static auto *const *PWORKSPACEINDICATORBGOPACITY =
+      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")
+          ->getDataStaticPtr();
 
   ACTIVE_BORDER_COLOR = **PACTIVEBORDERCOL;
   INACTIVE_BORDER_COLOR = **PINACTIVEBORDERCOL;
@@ -234,7 +294,9 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   try {
     if (PWORKSPACEINDICATORPOSITION_VAL) {
-      if (auto strPtr = (Hyprlang::STRING const *)PWORKSPACEINDICATORPOSITION_VAL->getDataStaticPtr()) {
+      if (auto strPtr =
+              (Hyprlang::STRING const *)
+                  PWORKSPACEINDICATORPOSITION_VAL->getDataStaticPtr()) {
         if (*strPtr) {
           WORKSPACE_INDICATOR_POSITION = *strPtr;
         }
@@ -254,7 +316,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Debug::log(LOG,
              "[hyprview] CHyprView(): Collecting windows for monitor '{}', "
              "workspace ID {}, mode={}",
-             pMonitor->m_description, activeWorkspace->m_id, (int)m_collectionMode);
+             pMonitor->m_description, activeWorkspace->m_id,
+             (int)m_collectionMode);
 
   // Lambda to check if window should be included based on collection mode
   auto shouldIncludeWindow = [&](PHLWINDOW w) -> bool {
@@ -277,7 +340,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
     case EWindowCollectionMode::WITH_SPECIAL:
       // Current workspace + special workspace
-      return windowWorkspace == activeWorkspace || windowWorkspace->m_isSpecialWorkspace;
+      return windowWorkspace == activeWorkspace ||
+             windowWorkspace->m_isSpecialWorkspace;
 
     case EWindowCollectionMode::ALL_WITH_SPECIAL:
       // All workspaces on monitor including special
@@ -301,35 +365,38 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   }
 
   // Sort windows: current workspace first, then by X then Y
-  std::stable_sort(windowsToRender.begin(), windowsToRender.end(), [&activeWorkspace](const PHLWINDOW &a, const PHLWINDOW &b) {
-    auto wsA = a->m_workspace;
-    auto wsB = b->m_workspace;
+  std::stable_sort(
+      windowsToRender.begin(), windowsToRender.end(),
+      [&activeWorkspace](const PHLWINDOW &a, const PHLWINDOW &b) {
+        auto wsA = a->m_workspace;
+        auto wsB = b->m_workspace;
 
-    // Priority 1: Current workspace first
-    bool aIsCurrent = (wsA == activeWorkspace);
-    bool bIsCurrent = (wsB == activeWorkspace);
-    if (aIsCurrent != bIsCurrent)
-      return aIsCurrent; // Current workspace windows come first
+        // Priority 1: Current workspace first
+        bool aIsCurrent = (wsA == activeWorkspace);
+        bool bIsCurrent = (wsB == activeWorkspace);
+        if (aIsCurrent != bIsCurrent)
+          return aIsCurrent; // Current workspace windows come first
 
-    // Priority 2: Within same workspace group, sort by workspace ID
-    if (wsA != wsB)
-      return wsA->m_id < wsB->m_id;
+        // Priority 2: Within same workspace group, sort by workspace ID
+        if (wsA != wsB)
+          return wsA->m_id < wsB->m_id;
 
-    // Priority 3: Within same workspace, sort by X then Y (changed from Y then X)
-    if (a->m_realPosition->value().x != b->m_realPosition->value().x)
-      return a->m_realPosition->value().x < b->m_realPosition->value().x;
-    return a->m_realPosition->value().y < b->m_realPosition->value().y;
-  });
+        // Priority 3: Within same workspace, sort by X then Y (changed from Y
+        // then X)
+        if (a->m_realPosition->value().x != b->m_realPosition->value().x)
+          return a->m_realPosition->value().x < b->m_realPosition->value().x;
+        return a->m_realPosition->value().y < b->m_realPosition->value().y;
+      });
 
   // Prepare input for pure placement algorithm
   std::vector<WindowInfo> windowInfos;
   windowInfos.reserve(windowsToRender.size());
   for (size_t i = 0; i < windowsToRender.size(); ++i) {
-    auto& w = windowsToRender[i];
+    auto &w = windowsToRender[i];
     windowInfos.push_back({
-      i,  // id
-      w->m_realSize->value().x,  // width
-      w->m_realSize->value().y   // height
+        i,                        // id
+        w->m_realSize->value().x, // width
+        w->m_realSize->value().y  // height
     });
   }
 
@@ -339,11 +406,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
   ScreenInfo screenInfo = {
-    fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x,  // width
-    fullMonitorSize.y - reservedTopLeft.y - reservedBottomRight.y,  // height
-    reservedTopLeft.x,   // offsetX
-    reservedTopLeft.y,   // offsetY
-    (double)MARGIN       // margin
+      fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x, // width
+      fullMonitorSize.y - reservedTopLeft.y - reservedBottomRight.y, // height
+      reservedTopLeft.x,                                             // offsetX
+      reservedTopLeft.y,                                             // offsetY
+      (double)MARGIN                                                 // margin
   };
 
   // Call the placement function based on m_placement
@@ -356,6 +423,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     placementResult = adaptivePlacement(windowInfos, screenInfo);
   } else if (m_placement == "wide") {
     placementResult = widePlacement(windowInfos, screenInfo);
+  } else if (m_placement == "scale") {
+    placementResult = scalePlacement(windowInfos, screenInfo);
   } else {
     // Default to grid placement
     placementResult = gridPlacement(windowInfos, screenInfo);
@@ -364,16 +433,16 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   // Apply placement results to images
   images.resize(placementResult.tiles.size());
   for (size_t i = 0; i < placementResult.tiles.size(); ++i) {
-    images[i].box = {
-      placementResult.tiles[i].x,
-      placementResult.tiles[i].y,
-      placementResult.tiles[i].width,
-      placementResult.tiles[i].height
-    };
+    images[i].box = {placementResult.tiles[i].x, placementResult.tiles[i].y,
+                     placementResult.tiles[i].width,
+                     placementResult.tiles[i].height};
   }
 
-  Debug::log(LOG, "[hyprview] Placement algorithm '{}' generated {}x{} grid with {} tiles",
-             m_placement, placementResult.gridCols, placementResult.gridRows, placementResult.tiles.size());
+  Debug::log(
+      LOG,
+      "[hyprview] Placement algorithm '{}' generated {}x{} grid with {} tiles",
+      m_placement, placementResult.gridCols, placementResult.gridRows,
+      placementResult.tiles.size());
 
   // Now call common setup to handle window rendering
   setupWindowImages(windowsToRender);
@@ -382,7 +451,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pInputManager->setCursorImageUntilUnset("left_ptr");
 
-  lastMousePosLocal = g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
+  lastMousePosLocal =
+      g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
 
   auto onCursorMove = [this](void *self, SCallbackInfo &info, std::any param) {
     if (closing)
@@ -393,8 +463,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     Vector2D monitorPos = pMonitor->m_position;
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-    bool mouseOnThisMonitor = (globalMousePos.x >= monitorPos.x && globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
-                               globalMousePos.y >= monitorPos.y && globalMousePos.y < monitorPos.y + fullMonitorSize.y);
+    bool mouseOnThisMonitor =
+        (globalMousePos.x >= monitorPos.x &&
+         globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
+         globalMousePos.y >= monitorPos.y &&
+         globalMousePos.y < monitorPos.y + fullMonitorSize.y);
 
     if (!mouseOnThisMonitor) {
       return; // Mouse is on a different monitor - don't cancel event
@@ -411,7 +484,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     info.cancelled = true;
   };
 
-  auto onCursorSelect = [this](void *self, SCallbackInfo &info, std::any param) {
+  auto onCursorSelect = [this](void *self, SCallbackInfo &info,
+                               std::any param) {
     if (closing)
       return;
 
@@ -420,8 +494,11 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     Vector2D monitorPos = pMonitor->m_position;
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-    bool mouseOnThisMonitor = (globalMousePos.x >= monitorPos.x && globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
-                               globalMousePos.y >= monitorPos.y && globalMousePos.y < monitorPos.y + fullMonitorSize.y);
+    bool mouseOnThisMonitor =
+        (globalMousePos.x >= monitorPos.x &&
+         globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
+         globalMousePos.y >= monitorPos.y &&
+         globalMousePos.y < monitorPos.y + fullMonitorSize.y);
 
     if (!mouseOnThisMonitor) {
       return; // Mouse is on a different monitor - don't cancel event
@@ -441,24 +518,18 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
           g_pCompositor->focusWindow(window);
 
           // Calculate mouse position relative to tile
-          const CBox& tileBox = images[tileIndex].box;
-          Vector2D mousePosInTile = {
-            localMousePos.x - tileBox.x,
-            localMousePos.y - tileBox.y
-          };
+          const CBox &tileBox = images[tileIndex].box;
+          Vector2D mousePosInTile = {localMousePos.x - tileBox.x,
+                                     localMousePos.y - tileBox.y};
 
           // Calculate scale factor from tile to real window
           Vector2D realWindowSize = window->m_realSize->value();
-          Vector2D scaleFactors = {
-            realWindowSize.x / tileBox.width,
-            realWindowSize.y / tileBox.height
-          };
+          Vector2D scaleFactors = {realWindowSize.x / tileBox.width,
+                                   realWindowSize.y / tileBox.height};
 
           // Project to real window coordinates
-          Vector2D projectedPos = {
-            mousePosInTile.x * scaleFactors.x,
-            mousePosInTile.y * scaleFactors.y
-          };
+          Vector2D projectedPos = {mousePosInTile.x * scaleFactors.x,
+                                   mousePosInTile.y * scaleFactors.y};
 
           // Warp cursor to projected position on real window
           Vector2D realWindowPos = window->m_realPosition->value();
@@ -472,7 +543,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return;
     }
 
-    // Normal mode: cancel click, select window, and close ALL overviews except forced ones
+    // Normal mode: cancel click, select window, and close ALL overviews except
+    // forced ones
     info.cancelled = true;
     selectHoveredWindow();
 
@@ -493,14 +565,18 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     Vector2D monitorPos = pMonitor->m_position;
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-    bool mouseOnThisMonitor = (globalMousePos.x >= monitorPos.x && globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
-                               globalMousePos.y >= monitorPos.y && globalMousePos.y < monitorPos.y + fullMonitorSize.y);
+    bool mouseOnThisMonitor =
+        (globalMousePos.x >= monitorPos.x &&
+         globalMousePos.x < monitorPos.x + fullMonitorSize.x &&
+         globalMousePos.y >= monitorPos.y &&
+         globalMousePos.y < monitorPos.y + fullMonitorSize.y);
 
     if (!mouseOnThisMonitor) {
       return; // Mouse is on a different monitor - don't interfere
     }
 
-    // If explicitly on, ensure the window under the cursor is focused for scroll
+    // If explicitly on, ensure the window under the cursor is focused for
+    // scroll
     if (explicitlyOn) {
       Vector2D localMousePos = globalMousePos - monitorPos;
       int tileIndex = getWindowIndexFromMousePos(localMousePos);
@@ -516,8 +592,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       }
     }
 
-    // In normal (non-explicit) overview mode, don't do anything special with scroll
-    // The focused window from hover will receive it
+    // In normal (non-explicit) overview mode, don't do anything special with
+    // scroll The focused window from hover will receive it
   };
 
   mouseMoveHook = g_pHookSystem->hookDynamic("mouseMove", onCursorMove);
@@ -530,7 +606,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   // NOW unblock rendering - workspace migration is complete
   // The overview layer will be created on the next render pass
   blockOverviewRendering = false;
-  Debug::log(LOG, "[hyprview] CHyprView(): Constructor complete, unblocked rendering");
+  Debug::log(
+      LOG, "[hyprview] CHyprView(): Constructor complete, unblocked rendering");
 }
 
 void CHyprView::selectHoveredWindow() {
@@ -542,7 +619,10 @@ void CHyprView::selectHoveredWindow() {
 
   // Safety validation - ensure we have a valid window to select
   if (closeOnID < 0 || closeOnID >= (int)images.size()) {
-    Debug::log(WARN, "[hyprview] selectHoveredWindow(): Invalid currentHoveredIndex {}, recalculating from mouse position", closeOnID);
+    Debug::log(WARN,
+               "[hyprview] selectHoveredWindow(): Invalid currentHoveredIndex "
+               "{}, recalculating from mouse position",
+               closeOnID);
 
     // Fallback: recalculate from current mouse position
     closeOnID = getWindowIndexFromMousePos(lastMousePosLocal);
@@ -557,7 +637,10 @@ void CHyprView::selectHoveredWindow() {
   if (closeOnID >= 0 && closeOnID < (int)images.size()) {
     auto selectedWindow = images[closeOnID].pWindow.lock();
     if (!selectedWindow || !selectedWindow->m_isMapped) {
-      Debug::log(WARN, "[hyprview] selectHoveredWindow(): Selected window at index {} is invalid", closeOnID);
+      Debug::log(WARN,
+                 "[hyprview] selectHoveredWindow(): Selected window at index "
+                 "{} is invalid",
+                 closeOnID);
     }
   }
 
@@ -586,7 +669,8 @@ void CHyprView::redrawID(int id, bool forcelowres) {
     return;
   }
 
-  const auto RENDERSIZE = (window->m_realSize->value() * pMonitor->m_scale).floor();
+  const auto RENDERSIZE =
+      (window->m_realSize->value() * pMonitor->m_scale).floor();
   if (RENDERSIZE.x < 1 || RENDERSIZE.y < 1) {
     blockOverviewRendering = false;
     return;
@@ -594,7 +678,8 @@ void CHyprView::redrawID(int id, bool forcelowres) {
 
   if (image.fb.m_size.x != RENDERSIZE.x || image.fb.m_size.y != RENDERSIZE.y) {
     image.fb.release();
-    image.fb.alloc(RENDERSIZE.x, RENDERSIZE.y, pMonitor->m_output->state->state().drmFormat);
+    image.fb.alloc(RENDERSIZE.x, RENDERSIZE.y,
+                   pMonitor->m_output->state->state().drmFormat);
   }
 
   CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
@@ -602,10 +687,12 @@ void CHyprView::redrawID(int id, bool forcelowres) {
   const auto REALPOS = window->m_realPosition->value();
   window->m_realPosition->setValue(pMonitor->m_position);
 
-  g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage, RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
+  g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage,
+                               RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
 
   if (window->m_isMapped) {
-    g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(), false, RENDER_PASS_MAIN, false, false);
+    g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(),
+                                  false, RENDER_PASS_MAIN, false, false);
   }
 
   g_pHyprOpenGL->m_renderData.blockScreenShader = true;
@@ -657,26 +744,34 @@ void CHyprView::close() {
   closing = true;
 
   // STEP 1: Restore ALL windows to their original workspaces FIRST
-  // This ensures that when we focus a window, the workspace switch happens naturally
+  // This ensures that when we focus a window, the workspace switch happens
+  // naturally
 
-  Debug::log(LOG, "[hyprview] close(): Restoring all windows to original workspaces");
+  Debug::log(
+      LOG, "[hyprview] close(): Restoring all windows to original workspaces");
   for (const auto &image : images) {
     auto window = image.pWindow.lock();
-    if (window && image.originalWorkspace && window->m_workspace != image.originalWorkspace) {
-      Debug::log(LOG, "[hyprview] close(): Restoring window '{}' from workspace {} to {}",
-                 window->m_title, window->m_workspace->m_id, image.originalWorkspace->m_id);
+    if (window && image.originalWorkspace &&
+        window->m_workspace != image.originalWorkspace) {
+      Debug::log(
+          LOG,
+          "[hyprview] close(): Restoring window '{}' from workspace {} to {}",
+          window->m_title, window->m_workspace->m_id,
+          image.originalWorkspace->m_id);
       window->moveToWorkspace(image.originalWorkspace);
     }
   }
 
   // STEP 2: Now focus the selected window (workspace will follow automatically)
-  if (userExplicitlySelected && closeOnID >= 0 && closeOnID < (int)images.size()) {
+  if (userExplicitlySelected && closeOnID >= 0 &&
+      closeOnID < (int)images.size()) {
 
     const auto &TILE = images[closeOnID];
     auto window = TILE.pWindow.lock();
     if (window && window->m_isMapped) {
 
-      Debug::log(LOG, "[hyprview] close(): User selected window, focusing and bringing to top");
+      Debug::log(LOG, "[hyprview] close(): User selected window, focusing and "
+                      "bringing to top");
       g_pCompositor->focusWindow(window);
       g_pKeybindManager->alterZOrder("top");
     }
@@ -700,7 +795,9 @@ void CHyprView::onPreRender() {
 
 void CHyprView::onWorkspaceChange() {}
 
-void CHyprView::render() { g_pHyprRenderer->m_renderPass.add(makeUnique<CHyprViewPassElement>(this)); }
+void CHyprView::render() {
+  g_pHyprRenderer->m_renderPass.add(makeUnique<CHyprViewPassElement>(this));
+}
 
 void CHyprView::fullRender() {
   // Get the current alpha value for smooth fade animation
@@ -711,11 +808,13 @@ void CHyprView::fullRender() {
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
     CBox monitorBox = {0, 0, fullMonitorSize.x, fullMonitorSize.y};
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-    g_pHyprOpenGL->renderTextureInternal(bgFramebuffer.getTexture(), monitorBox,
-                                         {.damage = &damage, .a = 1.0, .round = 0});
+    g_pHyprOpenGL->renderTextureInternal(
+        bgFramebuffer.getTexture(), monitorBox,
+        {.damage = &damage, .a = 1.0, .round = 0});
 
     // Add a dim overlay that fades in with the overview
-    g_pHyprOpenGL->renderRect(monitorBox, CHyprColor(0.0, 0.0, 0.0, BG_DIM * currentAlpha), {});
+    g_pHyprOpenGL->renderRect(
+        monitorBox, CHyprColor(0.0, 0.0, 0.0, BG_DIM * currentAlpha), {});
   }
 
   // If no windows, show centered message
@@ -724,7 +823,9 @@ void CHyprView::fullRender() {
     std::string emptyMessage = "Overview (no windows)";
     int fontSize = 32;
 
-    auto textTexture = g_pHyprOpenGL->renderText(emptyMessage, CHyprColor(1.0, 1.0, 1.0, currentAlpha), fontSize, false, "sans-serif");
+    auto textTexture = g_pHyprOpenGL->renderText(
+        emptyMessage, CHyprColor(1.0, 1.0, 1.0, currentAlpha), fontSize, false,
+        "sans-serif");
 
     if (textTexture) {
       double textWidth = textTexture->m_size.x * 0.8;
@@ -736,14 +837,18 @@ void CHyprView::fullRender() {
       CBox textBox = {centerX, centerY, textWidth, textHeight};
 
       // Render subtle background box
-      CBox bgBox = {centerX - 30, centerY - 20, textWidth + 60, textHeight + 40};
+      CBox bgBox = {centerX - 30, centerY - 20, textWidth + 60,
+                    textHeight + 40};
       CHyprOpenGLImpl::SRectRenderData bgData;
       bgData.round = 12;
-      g_pHyprOpenGL->renderRect(bgBox, CHyprColor(0.0, 0.0, 0.0, 0.5 * currentAlpha), bgData);
+      g_pHyprOpenGL->renderRect(
+          bgBox, CHyprColor(0.0, 0.0, 0.0, 0.5 * currentAlpha), bgData);
 
       // Render the text
       CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-      g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = currentAlpha, .round = 0});
+      g_pHyprOpenGL->renderTextureInternal(
+          textTexture, textBox,
+          {.damage = &damage, .a = currentAlpha, .round = 0});
     }
 
     return;
@@ -778,11 +883,15 @@ void CHyprView::fullRender() {
     const double offsetX = (tileBox.width - newSize.x) / 2.0;
     const double offsetY = (tileBox.height - newSize.y) / 2.0;
 
-    CBox windowBox = {tileBox.x + offsetX, tileBox.y + offsetY, newSize.x, newSize.y};
-    CBox borderBox = {windowBox.x - BORDER_WIDTH, windowBox.y - BORDER_WIDTH, windowBox.width + 2 * BORDER_WIDTH, windowBox.height + 2 * BORDER_WIDTH};
+    CBox windowBox = {tileBox.x + offsetX, tileBox.y + offsetY, newSize.x,
+                      newSize.y};
+    CBox borderBox = {windowBox.x - BORDER_WIDTH, windowBox.y - BORDER_WIDTH,
+                      windowBox.width + 2 * BORDER_WIDTH,
+                      windowBox.height + 2 * BORDER_WIDTH};
 
     const bool ISACTIVE = images[i].pWindow.lock() == PLASTWINDOW;
-    const auto &BORDERCOLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+    const auto &BORDERCOLOR =
+        ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
 
     // Translate both boxes for the overview animation
     borderBox.translate(pos->value());
@@ -799,7 +908,9 @@ void CHyprView::fullRender() {
     g_pHyprOpenGL->renderRect(borderBox, fadedBorderColor, data);
 
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-    g_pHyprOpenGL->renderTextureInternal(images[i].fb.getTexture(), windowBox, {.damage = &damage, .a = currentAlpha, .round = BORDER_RADIUS});
+    g_pHyprOpenGL->renderTextureInternal(
+        images[i].fb.getTexture(), windowBox,
+        {.damage = &damage, .a = currentAlpha, .round = BORDER_RADIUS});
 
     // Render workspace number indicator (if enabled and window exists)
     if (WORKSPACE_INDICATOR_ENABLED) {
@@ -811,12 +922,17 @@ void CHyprView::fullRender() {
   }
 }
 
-void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE) {
+void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox,
+                                         const CRegion &damage,
+                                         const bool ISACTIVE) {
   int workspaceID = images[i].originalWorkspace->m_id;
   std::string workspaceText = "wsid:" + std::to_string(workspaceID);
   // Use border color based on whether window is active
-  const auto &INDICATOR_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
-  auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR, WORKSPACE_INDICATOR_FONT_SIZE, false, "sans-serif");
+  const auto &INDICATOR_COLOR =
+      ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+  auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR,
+                                               WORKSPACE_INDICATOR_FONT_SIZE,
+                                               false, "sans-serif");
 
   if (textTexture) {
     double textPadding = 15.0;
@@ -828,12 +944,16 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const 
       textY = borderBox.y + textPadding;
     } else if (WORKSPACE_INDICATOR_POSITION == "bottom-left") {
       textX = borderBox.x + textPadding;
-      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) -
+              textPadding;
     } else if (WORKSPACE_INDICATOR_POSITION == "bottom-right") {
-      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
-      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) - textPadding;
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) -
+              textPadding;
+      textY = borderBox.y + borderBox.height - (textTexture->m_size.y * 0.8) -
+              textPadding;
     } else {
-      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) - textPadding;
+      textX = borderBox.x + borderBox.width - (textTexture->m_size.x * 0.8) -
+              textPadding;
       textY = borderBox.y + textPadding;
     }
 
@@ -847,16 +967,24 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox, const 
     CBox textBgBox = {textX - 8, textY - 8, textWidth + 16, textHeight + 16};
     CHyprOpenGLImpl::SRectRenderData bgData;
     bgData.round = 8;
-    g_pHyprOpenGL->renderRect(textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY), bgData);
+    g_pHyprOpenGL->renderRect(
+        textBgBox, CHyprColor(0.0, 0.0, 0.0, WORKSPACE_INDICATOR_BG_OPACITY),
+        bgData);
 
     // Render the text on top
-    g_pHyprOpenGL->renderTextureInternal(textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
+    g_pHyprOpenGL->renderTextureInternal(
+        textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
   }
 }
 
-static float lerp(const float &from, const float &to, const float perc) { return (to - from) * perc + from; }
+static float lerp(const float &from, const float &to, const float perc) {
+  return (to - from) * perc + from;
+}
 
-static Vector2D lerp(const Vector2D &from, const Vector2D &to, const float perc) { return Vector2D{lerp(from.x, to.x, perc), lerp(from.y, to.y, perc)}; }
+static Vector2D lerp(const Vector2D &from, const Vector2D &to,
+                     const float perc) {
+  return Vector2D{lerp(from.x, to.x, perc), lerp(from.y, to.y, perc)};
+}
 
 void CHyprView::setClosing(bool closing_) { closing = closing_; }
 
@@ -868,10 +996,15 @@ void CHyprView::onSwipeUpdate(double delta) {
   if (swipeWasCommenced)
     return;
 
-  static auto *const *PDISTANCE = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprview:gesture_distance")->getDataStaticPtr();
+  static auto *const *PDISTANCE =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:gesture_distance")
+          ->getDataStaticPtr();
 
   // Calculate progress percentage based on swipe direction
-  const float PERC = closing ? std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0) : 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
+  const float PERC =
+      closing ? std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0)
+              : 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
 
   // Update alpha for smooth fade in/out during swipe
   alpha->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
@@ -895,14 +1028,16 @@ void CHyprView::onSwipeEnd() {
   m_isSwiping = false;
 }
 
-int CHyprView::getWindowIndexFromMousePos(const Vector2D& mousePos) {
-  if (images.empty()) return -1;
+int CHyprView::getWindowIndexFromMousePos(const Vector2D &mousePos) {
+  if (images.empty())
+    return -1;
 
-  // Generic approach: iterate through all tiles and check if mouse is within their boxes
-  // This works with ANY placement algorithm, not just grids
-  // The placement algorithm has already calculated EXACT positions - we trust them completely
+  // Generic approach: iterate through all tiles and check if mouse is within
+  // their boxes This works with ANY placement algorithm, not just grids The
+  // placement algorithm has already calculated EXACT positions - we trust them
+  // completely
   for (size_t i = 0; i < images.size(); ++i) {
-    const CBox& tileBox = images[i].box;
+    const CBox &tileBox = images[i].box;
 
     // Check if mouse is within this tile's bounds
     if (mousePos.x >= tileBox.x && mousePos.x <= tileBox.x + tileBox.width &&
@@ -915,7 +1050,7 @@ int CHyprView::getWindowIndexFromMousePos(const Vector2D& mousePos) {
   return -1;
 }
 
-bool CHyprView::isMouseOverValidTile(const Vector2D& mousePos) {
+bool CHyprView::isMouseOverValidTile(const Vector2D &mousePos) {
   return getWindowIndexFromMousePos(mousePos) != -1;
 }
 
@@ -932,7 +1067,8 @@ void CHyprView::updateHoverState(int newIndex) {
   if (newIndex >= 0 && newIndex < (int)images.size()) {
     auto window = images[newIndex].pWindow.lock();
     if (window && window->m_isMapped) {
-      Debug::log(LOG, "[hyprview] updateHoverState: Focusing window {} at index {}",
+      Debug::log(LOG,
+                 "[hyprview] updateHoverState: Focusing window {} at index {}",
                  window->m_title, newIndex);
       g_pCompositor->focusWindow(window);
       lastHoveredWindow = window;

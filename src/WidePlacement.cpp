@@ -9,7 +9,8 @@
 // - Tiles try to maintain 16:9 aspect ratio
 // - Clean, uniform grid without size variation
 
-PlacementResult widePlacement(const std::vector<WindowInfo> &windows, const ScreenInfo &screen) {
+PlacementResult widePlacement(const std::vector<WindowInfo> &windows,
+                              const ScreenInfo &screen) {
   PlacementResult result;
 
   const size_t windowCount = windows.size();
@@ -29,12 +30,10 @@ PlacementResult widePlacement(const std::vector<WindowInfo> &windows, const Scre
     double tileWidth = screen.width * 0.75;
     double tileHeight = screen.height * 0.75;
 
-    result.tiles[0] = {
-        screen.offsetX + (screen.width - tileWidth) / 2.0,
-        screen.offsetY + (screen.height - tileHeight) / 2.0,
-        tileWidth - 2.0 * screen.margin,
-        tileHeight - 2.0 * screen.margin
-    };
+    result.tiles[0] = {screen.offsetX + (screen.width - tileWidth) / 2.0,
+                       screen.offsetY + (screen.height - tileHeight) / 2.0,
+                       tileWidth - 2.0 * screen.margin,
+                       tileHeight - 2.0 * screen.margin};
 
     return result;
   }
@@ -93,12 +92,8 @@ PlacementResult widePlacement(const std::vector<WindowInfo> &windows, const Scre
     double x = spacing + col * (tileWidth + spacing);
     double y = spacing + row * (tileHeight + spacing);
 
-    result.tiles[i] = {
-        screen.offsetX + x,
-        screen.offsetY + y,
-        tileWidth,
-        tileHeight
-    };
+    result.tiles[i] = {screen.offsetX + x, screen.offsetY + y, tileWidth,
+                       tileHeight};
   }
 
   // Center the grid

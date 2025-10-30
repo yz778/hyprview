@@ -2,7 +2,10 @@
 #include "hyprview.hpp"
 #include <hyprland/src/render/OpenGL.hpp>
 
-CHyprViewPassElement::CHyprViewPassElement(CHyprView *instance_) : instance(instance_) { ; }
+CHyprViewPassElement::CHyprViewPassElement(CHyprView *instance_)
+    : instance(instance_) {
+  ;
+}
 
 void CHyprViewPassElement::draw(const CRegion &damage) {
 
@@ -44,6 +47,7 @@ CRegion CHyprViewPassElement::opaqueRegion() {
   auto monitor = instance->pMonitor.lock();
   // Return the full monitor box as an opaque region using full physical size
   Vector2D fullMonitorSize = monitor->m_pixelSize;
-  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y, fullMonitorSize.x, fullMonitorSize.y};
+  CBox monitorBox = {monitor->m_position.x, monitor->m_position.y,
+                     fullMonitorSize.x, fullMonitorSize.y};
   return CRegion{monitorBox};
 }

@@ -16,7 +16,9 @@ void CViewGesture::begin(const ITrackpadGesture::STrackpadGestureBegin &e) {
   auto it = g_pHyprViewInstances.find(PMONITOR);
   if (it == g_pHyprViewInstances.end() || !it->second) {
     // Create overview for this monitor
-    g_pHyprViewInstances[PMONITOR] = std::make_unique<CHyprView>(PMONITOR, PMONITOR->m_activeWorkspace, true, EWindowCollectionMode::CURRENT_ONLY, "grid");
+    g_pHyprViewInstances[PMONITOR] = std::make_unique<CHyprView>(
+        PMONITOR, PMONITOR->m_activeWorkspace, true,
+        EWindowCollectionMode::CURRENT_ONLY, "grid");
   } else {
     // Close the overview - but don't call selectHoveredWindow()
     // The gesture swipe is not an explicit selection
