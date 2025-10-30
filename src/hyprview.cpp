@@ -22,7 +22,8 @@ CHyprView *findInstanceForAnimation(
     WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
   for (auto &[monitor, instance] : g_pHyprViewInstances) {
     if (instance && (instance->size.get() == thisptr.lock().get() ||
-                     instance->pos.get() == thisptr.lock().get())) {
+                     instance->pos.get() == thisptr.lock().get() ||
+                     instance->scale.get() == thisptr.lock().get())) {
       return instance.get();
     }
   }
@@ -121,12 +122,12 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     window->m_realPosition->setValue(REALPOS);
   }
 
-  // Setup fade-in animation
+  // Setup scale animation
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-  // Create smooth fade-in animation
+  // Create smooth scale animation from small size to full size
   g_pAnimationManager->createAnimation(
-      1.0f, alpha, g_pConfigManager->getAnimationPropertyConfig("fadeIn"),
+      1.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
 
   // Keep size and pos for potential future use (or swipe gestures)
@@ -139,16 +140,16 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
       g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
 
-  alpha->setUpdateCallback(damageMonitor);
+  scale->setUpdateCallback(damageMonitor);
   size->setUpdateCallback(damageMonitor);
   pos->setUpdateCallback(damageMonitor);
 
   if (!swipe) {
-    *alpha = 1.0f;
+    *scale = 0.8f; // Start at 80% scale
     *size = fullMonitorSize;
     *pos = {0, 0};
   } else {
-    *alpha = 0.0f; // Start invisible for swipe
+    *scale = 0.0f; // Start at 0% scale for swipe
   }
 
   // Set openedID to first window (for swipe gestures)
@@ -776,6 +777,11 @@ void CHyprView::close() {
     selectedWindow = images[closeOnID].pWindow.lock();
   }
 
+  // Create smooth close animation by scaling to 0
+  g_pAnimationManager->createAnimation(
+      0.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      AVARDAMAGE_NONE);
+
   // STEP 1: Restore ALL windows to their original workspaces
   Debug::log(
       LOG, "[hyprview] close(): Restoring all windows to original workspaces");
@@ -819,8 +825,9 @@ void CHyprView::render() {
 }
 
 void CHyprView::fullRender() {
-  // Get the current alpha value for smooth fade animation
-  const float currentAlpha = alpha->value();
+  // Get the current scale value for smooth scale animation
+  const float currentScale = scale->value();
+  const float currentAlpha = 1.0f; // Keep alpha fixed, removing all fade animations
 
   // Render the captured background instead of a solid color
   if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
@@ -911,6 +918,26 @@ void CHyprView::fullRender() {
     const bool ISACTIVE = images[i].pWindow.lock() == PLASTWINDOW;
     const auto &BORDERCOLOR =
         ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+
+    // Apply scaling to the center of the tile
+    if (currentScale != 1.0f) {
+      // Calculate center of the tile
+      double centerX = tileBox.x + tileBox.width / 2.0;
+      double centerY = tileBox.y + tileBox.height / 2.0;
+
+      // Scale the window box around the center
+      double scaledWidth = windowBox.width * currentScale;
+      double scaledHeight = windowBox.height * currentScale;
+      double scaledX = centerX - scaledWidth / 2.0;
+      double scaledY = centerY - scaledHeight / 2.0;
+
+      windowBox = {scaledX, scaledY, scaledWidth, scaledHeight};
+
+      // Recalculate border box based on scaled window
+      borderBox = {scaledX - BORDER_WIDTH, scaledY - BORDER_WIDTH,
+                   scaledWidth + 2 * BORDER_WIDTH,
+                   scaledHeight + 2 * BORDER_WIDTH};
+    }
 
     // Translate both boxes for the overview animation
     borderBox.translate(pos->value());
@@ -1178,23 +1205,26 @@ void CHyprView::onSwipeUpdate(double delta) {
       closing ? std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0)
               : 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
 
-  // Update alpha for smooth fade in/out during swipe
-  alpha->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
+  // Update scale for smooth scale in/out during swipe
+  // PERC is 0..1, where 1.0 means fully swiped
+  // When swiping open (not closing), scale from 0.0 to 1.0
+  // When swiping close (closing), scale from 1.0 to 0.0
+  scale->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
 }
 
 void CHyprView::onSwipeEnd() {
   // Check if swipe crossed the halfway threshold
-  const float currentAlpha = alpha->value();
+  const float currentScale = scale->value();
 
-  if (closing || currentAlpha < 0.5f) {
+  if (closing || currentScale < 0.5f) {
     // Swipe finished in closing direction - close the overview
-    *alpha = 0.0f;
+    *scale = 0.0f;
     close();
     return;
   }
 
   // Swipe cancelled - animate back to full visibility
-  *alpha = 1.0f;
+  *scale = 1.0f;
 
   swipeWasCommenced = true;
   m_isSwiping = false;

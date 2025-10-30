@@ -392,18 +392,17 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
   // Handle OFF action
   if (parsedArgs.action == DispatcherArgs::Action::OFF) {
-    auto targetMonitors = getTargetMonitors(parsedArgs.targetMonitor);
+    // Close all instances, similar to onCursorSelect in hyprview.cpp
+    for (auto &[monitor, instance] : g_pHyprViewInstances) {
+      if (instance && !instance->closing) {
+        // For a general OFF, close all non-explicit instances.
+        // If a specific monitor is targeted, close it regardless.
+        bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty() &&
+                                    monitor->m_name == parsedArgs.targetMonitor;
 
-    if (targetMonitors.empty()) {
-      return {.success = false, .error = "No matching monitor found"};
-    }
-
-    // Close overview on target monitors - OFF always closes regardless of
-    // explicitlyOn
-    for (auto &targetMonitor : targetMonitors) {
-      auto it = g_pHyprViewInstances.find(targetMonitor);
-      if (it != g_pHyprViewInstances.end() && it->second) {
-        it->second->close();
+        if (!instance->explicitlyOn || isExplicitlyTargeted) {
+          instance->close();
+        }
       }
     }
 
@@ -494,20 +493,20 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     }
 
     if (hasOverviewOnTarget) {
-      // Close overviews on target monitors (only those that can be toggled)
+      // Close all instances, similar to onCursorSelect in hyprview.cpp
       Debug::log(
           LOG,
-          "[hyprview] Toggle: closing overviews on toggleable target monitors");
+          "[hyprview] Toggle: closing overviews on all monitors (non-explicit)");
 
-      for (auto &targetMonitor : targetMonitors) {
-        auto it = g_pHyprViewInstances.find(targetMonitor);
-        if (it != g_pHyprViewInstances.end() && it->second &&
-            !it->second->closing) {
-          bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty();
-          bool canToggle = isExplicitlyTargeted || !it->second->explicitlyOn;
+      for (auto &[monitor, instance] : g_pHyprViewInstances) {
+        if (instance && !instance->closing) {
+          // For a general toggle, close all non-explicit instances.
+          // If a specific monitor is targeted, close it regardless.
+          bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty() &&
+                                      monitor->m_name == parsedArgs.targetMonitor;
 
-          if (canToggle) {
-            it->second->close();
+          if (!instance->explicitlyOn || isExplicitlyTargeted) {
+            instance->close();
           }
         }
       }

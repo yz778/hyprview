@@ -136,7 +136,7 @@ private:
 
   PHLANIMVAR<Vector2D> size;
   PHLANIMVAR<Vector2D> pos;
-  PHLANIMVAR<float> alpha; // Fade animation for overview
+  PHLANIMVAR<float> scale; // Scale animation for overview
 
   SP<HOOK_CALLBACK_FN> mouseMoveHook;
   SP<HOOK_CALLBACK_FN> mouseButtonHook;
