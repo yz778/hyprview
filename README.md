@@ -2,7 +2,7 @@
 
 `hyprview` is a Hyprland plugin that provides a window overview with multiple placement algorithms. It can display windows from the current workspace, all workspaces on a monitor, or include special workspaces, organizing them using various layout algorithms for easy navigation.
 
-The plugin includes five different placement algorithms to suit different preferences:
+The plugin includes six different placement algorithms to suit different preferences:
 
 - **`grid` (default):** Efficient dynamic grid that adapts to window count and screen aspect ratio, packing windows without wasted space.
 
@@ -13,6 +13,8 @@ The plugin includes five different placement algorithms to suit different prefer
 - **`adaptive`:** Individual scaling with visual hierarchy - maintains each window's aspect ratio while applying subtle size variations (larger windows scaled down slightly, smaller windows boosted) for a dynamic, organic layout.
 
 - **`wide`:** Wide horizontal grid with uniform tile sizes, prioritizing more columns and fewer rows with generous spacing between tiles.
+
+- **`scale`:** A clone of the Wayfire `scale` plugin that enlarges the center window.
 
 https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
@@ -71,6 +73,7 @@ bind = SUPER, G, hyprview:toggle, placement:spiral
 bind = SUPER, T, hyprview:toggle, placement:flow
 bind = SUPER, A, hyprview:toggle, placement:adaptive
 bind = SUPER, W, hyprview:toggle, placement:wide
+bind = SUPER, F, hyprview:toggle, placement:scale
 ```
 
 ### Dispatchers
@@ -91,6 +94,7 @@ The `hyprview` dispatcher uses a flexible argument format: `hyprview:<action>[,<
     * `placement:flow`: Proportional row-based flow
     * `placement:adaptive`: Individual scaling with hierarchy
     * `placement:wide`: Wide horizontal uniform grid
+    * `placement:scale`: Center-focused scale (like Wayfire's scale)
   * Combining them (e.g., `all special placement:flow`) works as expected.
 
 ### Gestures
