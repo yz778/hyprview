@@ -37,30 +37,29 @@ void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
 
 CHyprView::~CHyprView() {
 
-  // Restore all windows to their original workspaces
-
-  for (const auto &image : images) {
-    auto window = image.pWindow.lock();
-    if (window && image.originalWorkspace &&
-        window->m_workspace != image.originalWorkspace) {
-      Debug::log(LOG,
-                 "[hyprview] Restoring window '{}' from workspace {} to {}",
-                 window->m_title, window->m_workspace->m_id,
-                 image.originalWorkspace->m_id);
-      window->moveToWorkspace(image.originalWorkspace);
+  // If close() wasn't called, do cleanup here
+  if (!closing) {
+    // Restore all windows to their original workspaces
+    for (const auto &image : images) {
+      auto window = image.pWindow.lock();
+      if (window && image.originalWorkspace &&
+          window->m_workspace != image.originalWorkspace) {
+        Debug::log(LOG,
+                   "[hyprview] Restoring window '{}' from workspace {} to {}",
+                   window->m_title, window->m_workspace->m_id,
+                   image.originalWorkspace->m_id);
+        window->moveToWorkspace(image.originalWorkspace);
+      }
     }
+
+    g_pHyprRenderer->makeEGLCurrent();
+    images.clear();
+    bgFramebuffer.release();
+    g_pInputManager->unsetCursorImage();
+    g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
 
-  g_pHyprRenderer->makeEGLCurrent();
-
-  images.clear();
-
-  // Also clear the background framebuffer
-  bgFramebuffer.release();
-
-  g_pInputManager->unsetCursorImage();
-
-  g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
+  // Otherwise cleanup was already done in close()
 }
 
 void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
@@ -281,6 +280,22 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
           PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")
           ->getDataStaticPtr();
+  static auto *const *PWINDOWNAMEENABLED =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:window_name_enabled")
+          ->getDataStaticPtr();
+  static auto *const *PWINDOWNAMEFONTSIZE =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:window_name_font_size")
+          ->getDataStaticPtr();
+  static auto *const *PWINDOWNAMEBGOPACITY =
+      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:window_name_bg_opacity")
+          ->getDataStaticPtr();
+  static auto *const *PWINDOWTEXTCOLOR =
+      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+          PHANDLE, "plugin:hyprview:window_text_color")
+          ->getDataStaticPtr();
 
   ACTIVE_BORDER_COLOR = **PACTIVEBORDERCOL;
   INACTIVE_BORDER_COLOR = **PINACTIVEBORDERCOL;
@@ -291,6 +306,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   WORKSPACE_INDICATOR_FONT_SIZE = **PWORKSPACEINDICATORFONTSIZE;
   WORKSPACE_INDICATOR_BG_OPACITY = **PWORKSPACEINDICATORBGOPACITY;
   WORKSPACE_INDICATOR_POSITION = "";
+  WINDOW_NAME_ENABLED = **PWINDOWNAMEENABLED != 0;
+  WINDOW_NAME_FONT_SIZE = **PWINDOWNAMEFONTSIZE;
+  WINDOW_NAME_BG_OPACITY = **PWINDOWNAMEBGOPACITY;
+  WINDOW_TEXT_COLOR = **PWINDOWTEXTCOLOR;
 
   try {
     if (PWORKSPACEINDICATORPOSITION_VAL) {
@@ -405,12 +424,20 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Vector2D reservedBottomRight = pMonitor->m_reservedBottomRight;
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
+  // Calculate extra bottom margin needed for window names if enabled
+  double bottomMarginAdjustment = 0.0;
+  if (WINDOW_NAME_ENABLED) {
+    // Reserve space for text: font size + padding + background padding
+    // Approximate height: font_size * 1.5 (for rendering) + top/bottom padding (8px total)
+    bottomMarginAdjustment = WINDOW_NAME_FONT_SIZE * 1.5 + 8.0;
+  }
+
   ScreenInfo screenInfo = {
-      fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x, // width
-      fullMonitorSize.y - reservedTopLeft.y - reservedBottomRight.y, // height
-      reservedTopLeft.x,                                             // offsetX
-      reservedTopLeft.y,                                             // offsetY
-      (double)MARGIN                                                 // margin
+      fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x,                          // width
+      fullMonitorSize.y - reservedTopLeft.y - reservedBottomRight.y - bottomMarginAdjustment, // height (adjusted for window names)
+      reservedTopLeft.x,                                                                      // offsetX
+      reservedTopLeft.y,                                                                      // offsetY
+      (double)MARGIN                                                                          // margin
   };
 
   // Call the placement function based on m_placement
@@ -736,17 +763,20 @@ void CHyprView::onDamageReported() {
 void CHyprView::close() {
 
   if (closing) {
-
     Debug::log(LOG, "[hyprview] close(): already closing, returning");
     return;
   }
 
   closing = true;
 
-  // STEP 1: Restore ALL windows to their original workspaces FIRST
-  // This ensures that when we focus a window, the workspace switch happens
-  // naturally
+  // Save the selected window before cleanup
+  PHLWINDOW selectedWindow = nullptr;
+  if (userExplicitlySelected && closeOnID >= 0 &&
+      closeOnID < (int)images.size()) {
+    selectedWindow = images[closeOnID].pWindow.lock();
+  }
 
+  // STEP 1: Restore ALL windows to their original workspaces
   Debug::log(
       LOG, "[hyprview] close(): Restoring all windows to original workspaces");
   for (const auto &image : images) {
@@ -762,24 +792,34 @@ void CHyprView::close() {
     }
   }
 
-  // STEP 2: Now focus the selected window (workspace will follow automatically)
-  if (userExplicitlySelected && closeOnID >= 0 &&
-      closeOnID < (int)images.size()) {
+  // STEP 2: Clear all pseudo-windows and cleanup
+  Debug::log(LOG, "[hyprview] close(): Clearing images and cleanup");
+  images.clear();
+  bgFramebuffer.release();
+  g_pInputManager->unsetCursorImage();
+  g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 
-    const auto &TILE = images[closeOnID];
-    auto window = TILE.pWindow.lock();
-    if (window && window->m_isMapped) {
+  // STEP 3: FINAL STEP - Focus and z-order after everything is cleaned up
+  if (selectedWindow && selectedWindow->m_isMapped) {
+    Debug::log(LOG, "[hyprview] close(): Final step - focusing selected window on workspace {}",
+               selectedWindow->m_workspace->m_id);
 
-      Debug::log(LOG, "[hyprview] close(): User selected window, focusing and "
-                      "bringing to top");
-      g_pCompositor->focusWindow(window);
-      g_pKeybindManager->alterZOrder("top");
+    // Switch to the window's workspace if needed
+    auto windowWorkspace = selectedWindow->m_workspace;
+    if (windowWorkspace && pMonitor->m_activeWorkspace != windowWorkspace) {
+      Debug::log(LOG, "[hyprview] close(): Switching to workspace {}", windowWorkspace->m_id);
+      pMonitor->changeWorkspace(windowWorkspace, false, true);
     }
-  } else {
 
+    // Set as last window and bring to top
+    g_pCompositor->m_lastWindow = selectedWindow;
+    g_pKeybindManager->alterZOrder("top");
+
+    // Focus the window
+    g_pCompositor->focusWindow(selectedWindow, nullptr);
+  } else if (!userExplicitlySelected) {
     auto origWindow = originalFocusedWindow.lock();
     if (origWindow && origWindow->m_isMapped) {
-
       Debug::log(LOG, "[hyprview] close(): Restoring original window focus");
       g_pCompositor->focusWindow(origWindow);
     }
@@ -912,12 +952,18 @@ void CHyprView::fullRender() {
         images[i].fb.getTexture(), windowBox,
         {.damage = &damage, .a = currentAlpha, .round = BORDER_RADIUS});
 
-    // Render workspace number indicator (if enabled and window exists)
-    if (WORKSPACE_INDICATOR_ENABLED) {
+    // Render workspace number indicator (if enabled and window names are disabled)
+    // When window names are enabled, the workspace ID is integrated into the window name
+    if (WORKSPACE_INDICATOR_ENABLED && !WINDOW_NAME_ENABLED) {
       auto window = images[i].pWindow.lock();
       if (window && images[i].originalWorkspace) {
         renderWorkspaceIndicator(i, borderBox, damage, ISACTIVE);
       }
+    }
+
+    // Render window name (if enabled)
+    if (WINDOW_NAME_ENABLED) {
+      renderWindowName(images[i], borderBox);
     }
   }
 }
@@ -974,6 +1020,151 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox,
     // Render the text on top
     g_pHyprOpenGL->renderTextureInternal(
         textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
+  }
+}
+
+void CHyprView::renderWindowName(const SWindowImage &image,
+                                 const CBox &borderBox) {
+  auto window = image.pWindow.lock();
+  if (!window)
+    return;
+
+  // Build separate strings for workspace ID and window info
+  std::string workspaceText;
+  std::string windowText = window->m_initialClass + " • " + window->m_title;
+
+  // Determine workspace text color based on whether window is active
+  const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
+  const bool ISACTIVE = window == PLASTWINDOW;
+  const auto &WORKSPACE_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
+
+  // Include workspace ID if workspace indicator is enabled
+  if (WORKSPACE_INDICATOR_ENABLED && image.originalWorkspace) {
+    workspaceText = "[" + std::to_string(image.originalWorkspace->m_id) + "] ";
+  }
+
+  // Render workspace text to get its width
+  SP<CTexture> workspaceTexture;
+  double workspaceWidth = 0.0;
+  if (!workspaceText.empty()) {
+    workspaceTexture = g_pHyprOpenGL->renderText(
+        workspaceText, WORKSPACE_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
+    if (workspaceTexture) {
+      workspaceWidth = workspaceTexture->m_size.x * 0.8;
+    }
+  }
+
+  // Calculate available width for the window text
+  double bgPadding = 4.0;
+  double availableWidth = borderBox.width - workspaceWidth - (2 * bgPadding);
+
+  // Helper function to truncate string with smart ellipsis
+  auto truncateWithEllipsis = [&](const std::string& text, double maxWidth) -> std::string {
+    // First check if truncation is needed
+    auto fullTexture = g_pHyprOpenGL->renderText(
+        text, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
+    if (!fullTexture)
+      return text;
+
+    double fullWidth = fullTexture->m_size.x * 0.8;
+    if (fullWidth <= maxWidth)
+      return text; // No truncation needed
+
+    // Calculate how many characters we can fit
+    // Use binary search approach with ellipsis " ... "
+    std::string ellipsis = " ... ";
+    auto ellipsisTexture = g_pHyprOpenGL->renderText(
+        ellipsis, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
+    double ellipsisWidth = ellipsisTexture ? ellipsisTexture->m_size.x * 0.8 : 30.0;
+
+    // Reserve space for ellipsis
+    double targetWidth = maxWidth - ellipsisWidth;
+    if (targetWidth <= 0)
+      return ellipsis; // Too small, just show ellipsis
+
+    // Try to fit approximately equal parts from start and end
+    size_t textLen = text.length();
+    size_t startChars = textLen / 3;  // Take roughly 1/3 from start
+    size_t endChars = textLen / 3;    // Take roughly 1/3 from end
+
+    // Binary search to find optimal lengths
+    for (int attempts = 0; attempts < 10; attempts++) {
+      if (startChars + endChars >= textLen)
+        break;
+
+      std::string truncated = text.substr(0, startChars) + ellipsis +
+                             text.substr(textLen - endChars);
+
+      auto testTexture = g_pHyprOpenGL->renderText(
+          truncated, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
+      if (!testTexture)
+        break;
+
+      double testWidth = testTexture->m_size.x * 0.8;
+
+      if (testWidth <= maxWidth) {
+        // Try to add more characters
+        startChars = std::min(startChars + 2, textLen / 2);
+        endChars = std::min(endChars + 2, textLen / 2);
+      } else {
+        // Too wide, reduce
+        if (startChars > 3) startChars -= 1;
+        if (endChars > 3) endChars -= 1;
+        if (startChars <= 3 && endChars <= 3)
+          break;
+      }
+    }
+
+    // Ensure we have at least a few characters
+    startChars = std::max(size_t(3), std::min(startChars, textLen / 2));
+    endChars = std::max(size_t(3), std::min(endChars, textLen / 2));
+
+    return text.substr(0, startChars) + ellipsis + text.substr(textLen - endChars);
+  };
+
+  // Truncate window text if necessary
+  if (availableWidth > 50) { // Only truncate if we have reasonable space
+    windowText = truncateWithEllipsis(windowText, availableWidth);
+  }
+
+  // Render window text
+  auto windowTexture = g_pHyprOpenGL->renderText(
+      windowText, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
+
+  if (windowTexture) {
+    double windowWidth = windowTexture->m_size.x * 0.8;
+    double textHeight = windowTexture->m_size.y * 0.8;
+
+    // Calculate total width
+    double totalWidth = workspaceWidth + windowWidth;
+
+    // Center the entire label horizontally over the bottom border
+    double startX = borderBox.x + (borderBox.width - totalWidth) / 2.0;
+
+    // Position vertically: center over the bottom border
+    double textY = borderBox.y + borderBox.height - (textHeight + 2 * bgPadding) / 2.0;
+
+    // Render background for entire text
+    CBox textBgBox = {startX - bgPadding, textY - bgPadding,
+                      totalWidth + 2 * bgPadding, textHeight + 2 * bgPadding};
+    CHyprOpenGLImpl::SRectRenderData bgData;
+    bgData.round = 4;
+    g_pHyprOpenGL->renderRect(
+        textBgBox, CHyprColor(0.0, 0.0, 0.0, WINDOW_NAME_BG_OPACITY), bgData);
+
+    CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
+
+    // Render workspace text first (if present)
+    if (workspaceTexture) {
+      CBox workspaceBox = {startX, textY, workspaceWidth, textHeight};
+      g_pHyprOpenGL->renderTextureInternal(
+          workspaceTexture, workspaceBox, {.damage = &fakeDamage, .a = 1.0, .round = 0});
+    }
+
+    // Render window text after workspace text
+    CBox windowBox = {startX + workspaceWidth, textY, windowWidth, textHeight};
+    g_pHyprOpenGL->renderTextureInternal(
+        windowTexture, windowBox, {.damage = &fakeDamage, .a = 1.0, .round = 0});
   }
 }
 

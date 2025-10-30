@@ -124,14 +124,35 @@ You can customize the appearance and behavior of the overview by setting the fol
 
 | Variable                                         | Type      | Description                                                                   | Default      |
 | -------------------------------------------------- | ----------- | ------------------------------------------------------------------------------- | -------------- |
-| `plugin:hyprview:active_border_color`            | int (hex) | Border color for the currently focused window.                                | `0xFFCA7815` |
+| `plugin:hyprview:active_border_color`            | int (hex) | Border color for the currently focused window. Also used for workspace ID text in active window labels. | `0xFFCA7815` |
 | `plugin:hyprview:bg_dim`                         | float     | Opacity of the background dim overlay (0.0 = no dim, 1.0 = fully black).      | `0.4`        |
 | `plugin:hyprview:border_radius`                  | int       | Radius of window borders in pixels.                                           | `5`          |
 | `plugin:hyprview:border_width`                   | int       | Width of window borders in pixels.                                            | `5`          |
 | `plugin:hyprview:gesture_distance`               | int       | The swipe distance required for the gesture.                                  | `200`        |
-| `plugin:hyprview:inactive_border_color`          | int (hex) | Border color for inactive windows.                                            | `0x88c0c0c0` |
+| `plugin:hyprview:inactive_border_color`          | int (hex) | Border color for inactive windows. Also used for workspace ID text in inactive window labels. | `0x88c0c0c0` |
 | `plugin:hyprview:margin`                         | int       | Margin around each grid tile.                                                 | `10`         |
-| `plugin:hyprview:workspace_indicator_enabled`    | int       | Show workspace indicator on window tiles (`0` = disabled, `1` = enabled).     | `1`          |
-| `plugin:hyprview:workspace_indicator_font_size`  | int       | Font size for workspace indicator in points.                                  | `28`         |
-| `plugin:hyprview:workspace_indicator_position`   | string    | Position: `top-left`, `top-right`, `bottom-left`, `bottom-right` (empty = top-right). | (empty)      |
-| `plugin:hyprview:workspace_indicator_bg_opacity` | float     | Opacity of the indicator background (0.0 = transparent, 1.0 = opaque).        | `0.85`       |
+| `plugin:hyprview:workspace_indicator_enabled`    | int       | Show workspace ID in window labels (`0` = disabled, `1` = enabled).           | `1`          |
+| `plugin:hyprview:window_name_enabled`            | int       | Show window info centered on bottom border as `[wsid] class • title` (`0` = disabled, `1` = enabled). When enabled, replaces the old workspace indicator overlay. | `1`          |
+| `plugin:hyprview:window_name_font_size`          | int       | Font size for window labels in points.                                        | `20`         |
+| `plugin:hyprview:window_name_bg_opacity`         | float     | Opacity of the window label background (0.0 = transparent, 1.0 = opaque).     | `0.85`       |
+| `plugin:hyprview:window_text_color`              | int (hex) | Color for window class and title text in labels (format: 0xRRGGBBAA).         | `0xFFFFFFFF` (white) |
+
+#### Deprecated Settings (Will be removed in next major version)
+
+| Variable                                         | Type      | Description                                                                   | Default      | Replacement |
+| -------------------------------------------------- | ----------- | ------------------------------------------------------------------------------- | -------------- | ----------- |
+| `plugin:hyprview:workspace_indicator_font_size`  | int       | ⚠️ **DEPRECATED** - Font size now controlled by `window_name_font_size`.     | `28`         | Use `window_name_font_size` |
+| `plugin:hyprview:workspace_indicator_position`   | string    | ⚠️ **DEPRECATED** - Position now centered on bottom border when `window_name_enabled = 1`. | (empty)      | Always centered (when window names enabled) |
+| `plugin:hyprview:workspace_indicator_bg_opacity` | float     | ⚠️ **DEPRECATED** - Background opacity now controlled by `window_name_bg_opacity`. | `0.85`       | Use `window_name_bg_opacity` |
+
+**Note:** When `window_name_enabled = 1` (default), the workspace indicator is integrated into the window label format: `[workspace_id] class • title`. The label is centered on the bottom border with separate color control:
+- **Workspace ID** (`[workspace_id]`): Uses border color (active = `active_border_color`, inactive = `inactive_border_color`)
+- **Window info** (`class • title`): Uses `window_text_color` (default: white)
+
+The deprecated workspace indicator settings (`font_size`, `position`, `bg_opacity`) are ignored when window names are enabled. To use the old overlay-style workspace indicator, set `window_name_enabled = 0`.
+
+**Migration Guide:** The old overlay-style workspace indicator (shown in the corner of each tile) has been replaced with an integrated label system. If you have custom settings for the old workspace indicator:
+- Replace `workspace_indicator_font_size` with `window_name_font_size`
+- Replace `workspace_indicator_bg_opacity` with `window_name_bg_opacity`
+- The `workspace_indicator_position` setting is no longer needed as labels are always centered on the bottom border
+- These deprecated settings will be removed in the next major version

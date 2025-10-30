@@ -98,6 +98,12 @@ private:
   std::string WORKSPACE_INDICATOR_POSITION;
   float WORKSPACE_INDICATOR_BG_OPACITY;
 
+  // Window name configuration
+  bool WINDOW_NAME_ENABLED;
+  int WINDOW_NAME_FONT_SIZE;
+  float WINDOW_NAME_BG_OPACITY;
+  CHyprColor WINDOW_TEXT_COLOR;
+
   bool damageDirty = false;
 
   struct SWindowImage {
@@ -108,6 +114,8 @@ private:
     Vector2D originalSize;
     PHLWORKSPACE originalWorkspace; // Store original workspace for restoration
   };
+
+  void renderWindowName(const SWindowImage &image, const CBox &borderBox);
 
   Vector2D lastMousePosLocal = Vector2D{};
 

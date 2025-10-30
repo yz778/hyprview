@@ -823,6 +823,14 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   HyprlandAPI::addConfigValue(PHANDLE,
                               "plugin:hyprview:workspace_indicator_bg_opacity",
                               Hyprlang::FLOAT{0.85});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_enabled",
+                              Hyprlang::INT{1});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_font_size",
+                              Hyprlang::INT{20});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_bg_opacity",
+                              Hyprlang::FLOAT{0.85});
+  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_text_color",
+                              Hyprlang::INT{0xFFFFFFFF});
   HyprlandAPI::reloadConfig();
 
   return {"hyprview", "Window overview with multiple placement algorithms",
