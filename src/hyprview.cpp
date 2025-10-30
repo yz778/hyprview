@@ -799,30 +799,9 @@ void CHyprView::close() {
   g_pInputManager->unsetCursorImage();
   g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 
-  // STEP 3: FINAL STEP - Focus and z-order after everything is cleaned up
-  if (selectedWindow && selectedWindow->m_isMapped) {
-    Debug::log(LOG, "[hyprview] close(): Final step - focusing selected window on workspace {}",
-               selectedWindow->m_workspace->m_id);
-
-    // Switch to the window's workspace if needed
-    auto windowWorkspace = selectedWindow->m_workspace;
-    if (windowWorkspace && pMonitor->m_activeWorkspace != windowWorkspace) {
-      Debug::log(LOG, "[hyprview] close(): Switching to workspace {}", windowWorkspace->m_id);
-      pMonitor->changeWorkspace(windowWorkspace, false, true);
-    }
-
-    // Set as last window and bring to top
-    g_pCompositor->m_lastWindow = selectedWindow;
+  // Window is already focused from hover state - just bring it to top
+  if (userExplicitlySelected) {
     g_pKeybindManager->alterZOrder("top");
-
-    // Focus the window
-    g_pCompositor->focusWindow(selectedWindow, nullptr);
-  } else if (!userExplicitlySelected) {
-    auto origWindow = originalFocusedWindow.lock();
-    if (origWindow && origWindow->m_isMapped) {
-      Debug::log(LOG, "[hyprview] close(): Restoring original window focus");
-      g_pCompositor->focusWindow(origWindow);
-    }
   }
 }
 
@@ -1059,7 +1038,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   double availableWidth = borderBox.width - workspaceWidth - (2 * bgPadding);
 
   // Helper function to truncate string with smart ellipsis
-  auto truncateWithEllipsis = [&](const std::string& text, double maxWidth) -> std::string {
+  auto truncateWithEllipsis = [&](const std::string &text, double maxWidth) -> std::string {
     // First check if truncation is needed
     auto fullTexture = g_pHyprOpenGL->renderText(
         text, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
@@ -1084,8 +1063,8 @@ void CHyprView::renderWindowName(const SWindowImage &image,
 
     // Try to fit approximately equal parts from start and end
     size_t textLen = text.length();
-    size_t startChars = textLen / 3;  // Take roughly 1/3 from start
-    size_t endChars = textLen / 3;    // Take roughly 1/3 from end
+    size_t startChars = textLen / 3; // Take roughly 1/3 from start
+    size_t endChars = textLen / 3;   // Take roughly 1/3 from end
 
     // Binary search to find optimal lengths
     for (int attempts = 0; attempts < 10; attempts++) {
@@ -1093,7 +1072,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
         break;
 
       std::string truncated = text.substr(0, startChars) + ellipsis +
-                             text.substr(textLen - endChars);
+                              text.substr(textLen - endChars);
 
       auto testTexture = g_pHyprOpenGL->renderText(
           truncated, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
@@ -1108,8 +1087,10 @@ void CHyprView::renderWindowName(const SWindowImage &image,
         endChars = std::min(endChars + 2, textLen / 2);
       } else {
         // Too wide, reduce
-        if (startChars > 3) startChars -= 1;
-        if (endChars > 3) endChars -= 1;
+        if (startChars > 3)
+          startChars -= 1;
+        if (endChars > 3)
+          endChars -= 1;
         if (startChars <= 3 && endChars <= 3)
           break;
       }
