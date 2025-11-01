@@ -400,7 +400,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
         bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty() &&
                                     monitor->m_name == parsedArgs.targetMonitor;
 
-        if (!instance->explicitlyOn || isExplicitlyTargeted) {
+        if (!instance->stickyOn || isExplicitlyTargeted) {
           instance->close();
         }
       }
@@ -473,17 +473,17 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     }
 
     // Check if any of the target monitors has an overview active (that can be
-    // toggled) Monitors with explicitlyOn=true can ONLY be toggled if
+    // toggled) Monitors with stickyOn=true can ONLY be toggled if
     // specifically targeted
     bool hasOverviewOnTarget = false;
     for (auto &targetMonitor : targetMonitors) {
       auto it = g_pHyprViewInstances.find(targetMonitor);
       if (it != g_pHyprViewInstances.end() && it->second) {
         // Count as toggleable if:
-        // - Monitor was explicitly specified (can toggle even if explicitlyOn)
+        // - Monitor was explicitly specified (can toggle even if stickyOn)
         // - OR instance is not explicitly on (general toggle affects it)
         bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty();
-        bool canToggle = isExplicitlyTargeted || !it->second->explicitlyOn;
+        bool canToggle = isExplicitlyTargeted || !it->second->stickyOn;
 
         if (canToggle) {
           hasOverviewOnTarget = true;
@@ -505,7 +505,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
           bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty() &&
                                       monitor->m_name == parsedArgs.targetMonitor;
 
-          if (!instance->explicitlyOn || isExplicitlyTargeted) {
+          if (!instance->stickyOn || isExplicitlyTargeted) {
             instance->close();
           }
         }
@@ -515,7 +515,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
       for (auto it = g_pHyprViewInstances.begin();
            it != g_pHyprViewInstances.end();) {
-        if (it->second && it->second->closing) {
+        if (it->second && it->second->readyForCleanup) {
           it = g_pHyprViewInstances.erase(it);
         } else {
           ++it;
@@ -710,10 +710,11 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
             instance->onPreRender();
         }
 
-        // Clean up closing instances
+        // Clean up closing instances - but only when they're ready
+        // This ensures the masking layer stays visible while windows are moved back
         for (auto it = g_pHyprViewInstances.begin();
              it != g_pHyprViewInstances.end();) {
-          if (it->second && it->second->closing) {
+          if (it->second && it->second->readyForCleanup) {
 
             g_pHyprRenderer->m_renderPass.removeAllOfType(
                 "CHyprViewPassElement");

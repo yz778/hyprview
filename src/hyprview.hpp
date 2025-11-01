@@ -69,7 +69,8 @@ public:
   bool m_isSwiping = false;
   bool closing = false;
   bool swipe = false;
-  bool explicitlyOn = false; // True if turned on with :on command (sticky mode)
+  bool stickyOn = false;    // True if turned on with :on command (sticky mode)
+  bool readyForCleanup = false; // True when safe to remove from render pass
 
 private:
   void redrawID(int id, bool forcelowres = false);

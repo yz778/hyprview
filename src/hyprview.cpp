@@ -46,21 +46,23 @@ CHyprView::~CHyprView() {
       if (window && image.originalWorkspace &&
           window->m_workspace != image.originalWorkspace) {
         Debug::log(LOG,
-                   "[hyprview] Restoring window '{}' from workspace {} to {}",
+                   "[hyprview] ~CHyprView(): Restoring window '{}' from workspace {} to {}",
                    window->m_title, window->m_workspace->m_id,
                    image.originalWorkspace->m_id);
         window->moveToWorkspace(image.originalWorkspace);
       }
     }
+  }
 
+  // Always cleanup resources in destructor if they haven't been cleaned yet
+  if (!images.empty() || bgFramebuffer.m_size.x > 0) {
+    Debug::log(LOG, "[hyprview] ~CHyprView(): Cleaning up remaining resources");
     g_pHyprRenderer->makeEGLCurrent();
     images.clear();
     bgFramebuffer.release();
     g_pInputManager->unsetCursorImage();
     g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
-
-  // Otherwise cleanup was already done in close()
 }
 
 void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
@@ -222,7 +224,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
                      EWindowCollectionMode mode, const std::string &placement,
                      bool explicitOn)
     : pMonitor(pMonitor_), startedOn(startedOn_), swipe(swipe_),
-      m_collectionMode(mode), m_placement(placement), explicitlyOn(explicitOn) {
+      m_collectionMode(mode), m_placement(placement), stickyOn(explicitOn) {
 
   // Capture the background BEFORE moving windows for the overview
   captureBackground();
@@ -533,7 +535,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     }
 
     // If explicitly turned on, project click to real window
-    if (explicitlyOn) {
+    if (stickyOn) {
       info.cancelled = true;
 
       Vector2D localMousePos = globalMousePos - monitorPos;
@@ -576,9 +578,9 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     info.cancelled = true;
     selectHoveredWindow();
 
-    // Close all overview instances except those with explicitlyOn=true
+    // Close all overview instances except those with stickyOn=true
     for (auto &[monitor, instance] : g_pHyprViewInstances) {
-      if (instance && !instance->explicitlyOn) {
+      if (instance && !instance->stickyOn) {
         instance->close();
       }
     }
@@ -605,7 +607,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
     // If explicitly on, ensure the window under the cursor is focused for
     // scroll
-    if (explicitlyOn) {
+    if (stickyOn) {
       Vector2D localMousePos = globalMousePos - monitorPos;
       int tileIndex = getWindowIndexFromMousePos(localMousePos);
 
@@ -777,12 +779,8 @@ void CHyprView::close() {
     selectedWindow = images[closeOnID].pWindow.lock();
   }
 
-  // Create smooth close animation by scaling to 0
-  g_pAnimationManager->createAnimation(
-      0.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
-      AVARDAMAGE_NONE);
-
   // STEP 1: Restore ALL windows to their original workspaces
+  // The overview layer continues rendering during this process to hide the movement
   Debug::log(
       LOG, "[hyprview] close(): Restoring all windows to original workspaces");
   for (const auto &image : images) {
@@ -798,14 +796,14 @@ void CHyprView::close() {
     }
   }
 
-  // STEP 2: Clear all pseudo-windows and cleanup
+  // STEP 2: Clear images and cleanup immediately
   Debug::log(LOG, "[hyprview] close(): Clearing images and cleanup");
   images.clear();
   bgFramebuffer.release();
   g_pInputManager->unsetCursorImage();
   g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 
-  // Focus the selected window to trigger all lifecycle events
+  // STEP 3: Focus the selected window to trigger all lifecycle events
   if (userExplicitlySelected && selectedWindow) {
     g_pCompositor->focusWindow(selectedWindow);
     g_pKeybindManager->alterZOrder("top");
@@ -816,6 +814,13 @@ void CHyprView::onPreRender() {
   if (damageDirty && !closing) {
     damageDirty = false;
     redrawAll(false);
+  }
+
+  // If we're closing, mark as ready for cleanup on next frame
+  // This ensures the masking layer stays visible for one more frame while windows settle
+  if (closing && !readyForCleanup) {
+    readyForCleanup = true;
+    Debug::log(LOG, "[hyprview] onPreRender(): Marked as ready for cleanup");
   }
 }
 
