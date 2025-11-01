@@ -805,8 +805,9 @@ void CHyprView::close() {
   g_pInputManager->unsetCursorImage();
   g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 
-  // Window is already focused from hover state - just bring it to top
-  if (userExplicitlySelected) {
+  // Focus the selected window to trigger all lifecycle events
+  if (userExplicitlySelected && selectedWindow) {
+    g_pCompositor->focusWindow(selectedWindow);
     g_pKeybindManager->alterZOrder("top");
   }
 }
