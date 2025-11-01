@@ -29,14 +29,17 @@ class CMonitor;
 class CHyprView;
 
 // Forward declare friend functions
-CHyprView *findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
+CHyprView *findInstanceForAnimation(
+    WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 // Function declaration for damageMonitor used by placement algorithms
 void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr);
 
 class CHyprView {
 public:
-  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false, EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY);
+  CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe = false,
+            EWindowCollectionMode mode = EWindowCollectionMode::CURRENT_ONLY,
+            const std::string &placement = "grid", bool explicitOn = false);
   ~CHyprView();
 
   void render();
@@ -53,10 +56,10 @@ public:
   // close without a selection
   void close();
   void selectHoveredWindow();
-  
+
   // Accurate mouse-to-tile calculation
-  int getWindowIndexFromMousePos(const Vector2D& mousePos);
-  bool isMouseOverValidTile(const Vector2D& mousePos);
+  int getWindowIndexFromMousePos(const Vector2D &mousePos);
+  bool isMouseOverValidTile(const Vector2D &mousePos);
   void updateHoverState(int newIndex);
 
   bool blockOverviewRendering = false;
@@ -66,21 +69,23 @@ public:
   bool m_isSwiping = false;
   bool closing = false;
   bool swipe = false;
+  bool stickyOn = false;    // True if turned on with :on command (sticky mode)
+  bool readyForCleanup = false; // True when safe to remove from render pass
 
 private:
   void redrawID(int id, bool forcelowres = false);
   void redrawAll(bool forcelowres = false);
   void onWorkspaceChange();
   void fullRender();
-  void renderWorkspaceIndicator(size_t i, const CBox &borderBox, const CRegion &damage, const bool ISACTIVE);
+  void renderWorkspaceIndicator(size_t i, const CBox &borderBox,
+                                const CRegion &damage, const bool ISACTIVE);
   void captureBackground();
+  void setupWindowImages(std::vector<PHLWINDOW> &windowsToRender);
 
   CFramebuffer bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
 
-  int SIDE_LENGTH = 3; // Grid columns
-  int GRID_ROWS = 3;   // Grid rows
-  int MARGIN = 15;     // Margin around each grid tile
+  int MARGIN = 15; // Margin around each grid tile
 
   CHyprColor ACTIVE_BORDER_COLOR;
   CHyprColor INACTIVE_BORDER_COLOR;
@@ -94,6 +99,12 @@ private:
   std::string WORKSPACE_INDICATOR_POSITION;
   float WORKSPACE_INDICATOR_BG_OPACITY;
 
+  // Window name configuration
+  bool WINDOW_NAME_ENABLED;
+  int WINDOW_NAME_FONT_SIZE;
+  float WINDOW_NAME_BG_OPACITY;
+  CHyprColor WINDOW_TEXT_COLOR;
+
   bool damageDirty = false;
 
   struct SWindowImage {
@@ -104,6 +115,8 @@ private:
     Vector2D originalSize;
     PHLWORKSPACE originalWorkspace; // Store original workspace for restoration
   };
+
+  void renderWindowName(const SWindowImage &image, const CBox &borderBox);
 
   Vector2D lastMousePosLocal = Vector2D{};
 
@@ -120,9 +133,11 @@ private:
 
   PHLWORKSPACE startedOn;
   EWindowCollectionMode m_collectionMode;
+  std::string m_placement;
 
   PHLANIMVAR<Vector2D> size;
   PHLANIMVAR<Vector2D> pos;
+  PHLANIMVAR<float> scale; // Scale animation for overview
 
   SP<HOOK_CALLBACK_FN> mouseMoveHook;
   SP<HOOK_CALLBACK_FN> mouseButtonHook;
@@ -133,9 +148,10 @@ private:
   bool swipeWasCommenced = false;
 
   friend class CHyprViewPassElement;
-  friend CHyprView * ::findInstanceForAnimation(WP<Hyprutils::Animation::CBaseAnimatedVariable>);
-  friend void gridPlacement(CHyprView*, std::vector<PHLWINDOW> &);
+  friend CHyprView * ::findInstanceForAnimation(
+      WP<Hyprutils::Animation::CBaseAnimatedVariable>);
 };
 
 // Map of monitor to CHyprView instance - one overview per monitor
-inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>> g_pHyprViewInstances;
+inline std::unordered_map<PHLMONITOR, std::unique_ptr<CHyprView>>
+    g_pHyprViewInstances;

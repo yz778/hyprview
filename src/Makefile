@@ -9,7 +9,7 @@ endif
 BUILD_DIR = ../build
 
 # Source files
-SRCS = main.cpp hyprview.cpp ViewGesture.cpp HyprViewPassElement.cpp GridPlacement.cpp
+SRCS = main.cpp hyprview.cpp ViewGesture.cpp HyprViewPassElement.cpp GridPlacement.cpp SpiralPlacement.cpp FlowPlacement.cpp AdaptivePlacement.cpp WidePlacement.cpp ScalePlacement.cpp
 
 # Object files
 OBJS = $(addprefix $(BUILD_DIR)/, $(SRCS:.cpp=.o))
