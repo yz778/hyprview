@@ -1281,13 +1281,19 @@ void CHyprView::updateHoverState(int newIndex) {
 
   currentHoveredIndex = newIndex;
 
+  static auto *const *PFOLLOWMOUSE = (Hyprlang::INT *const *) HyprlandAPI::getConfigValue(
+    PHANDLE, "input:follow_mouse"
+  )->getDataStaticPtr();
+
   if (newIndex >= 0 && newIndex < (int)images.size()) {
     auto window = images[newIndex].pWindow.lock();
     if (window && window->m_isMapped) {
-      Debug::log(LOG,
-                 "[hyprview] updateHoverState: Focusing window {} at index {}",
-                 window->m_title, newIndex);
-      g_pCompositor->focusWindow(window);
+      if (**PFOLLOWMOUSE == 1) {
+        Debug::log(LOG,
+                   "[hyprview] updateHoverState: Focusing window {} at index {}",
+                   window->m_title, newIndex);
+        g_pCompositor->focusWindow(window);
+      }
       lastHoveredWindow = window;
     }
   }
