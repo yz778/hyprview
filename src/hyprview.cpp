@@ -12,6 +12,8 @@
 #include <hyprland/src/managers/animation/AnimationManager.hpp>
 #include <hyprland/src/managers/animation/DesktopAnimationManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/managers/CursorManager.hpp>
+#include <hyprland/src/managers/PointerManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #undef private
 #include "HyprViewPassElement.hpp"
@@ -60,7 +62,7 @@ CHyprView::~CHyprView() {
     g_pHyprRenderer->makeEGLCurrent();
     images.clear();
     bgFramebuffer.release();
-    g_pInputManager->unsetCursorImage();
+    g_pPointerManager->resetCursorImage();
     g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
 }
@@ -479,7 +481,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
-  g_pInputManager->setCursorImageUntilUnset("left_ptr");
+  g_pCursorManager->setCursorFromName("left_ptr");
 
   lastMousePosLocal =
       g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
@@ -800,7 +802,7 @@ void CHyprView::close() {
   Debug::log(LOG, "[hyprview] close(): Clearing images and cleanup");
   images.clear();
   bgFramebuffer.release();
-  g_pInputManager->unsetCursorImage();
+  g_pPointerManager->resetCursorImage();
   g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
 
   // STEP 3: Focus the selected window to trigger all lifecycle events

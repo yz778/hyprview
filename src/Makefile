@@ -18,7 +18,8 @@ OBJS = $(addprefix $(BUILD_DIR)/, $(SRCS:.cpp=.o))
 TARGET = $(BUILD_DIR)/hyprview.so
 
 # Compiler flags
-CXXFLAGS = -shared -fPIC $(EXTRA_FLAGS) -g `pkg-config --cflags pixman-1 libdrm hyprland pangocairo libinput libudev wayland-server xkbcommon` -std=c++2b -Wno-narrowing
+# Use system headers from /usr/include instead of hyprpm cache
+CXXFLAGS = -shared -fPIC $(EXTRA_FLAGS) -g -I/usr/include -I/usr/include/hyprland -I/usr/include/hyprland/src -I/usr/include/hyprland/protocols `pkg-config --cflags pixman-1 libdrm pangocairo libinput libudev wayland-server xkbcommon` -std=c++2b -Wno-narrowing
 
 .PHONY: all clean format
 
@@ -29,7 +30,7 @@ $(TARGET): $(OBJS)
 
 $(BUILD_DIR)/%.o: %.cpp
 	@mkdir -p $(@D)
-	$(CXX) -c -fPIC $(EXTRA_FLAGS) -g `pkg-config --cflags pixman-1 libdrm hyprland pangocairo libinput libudev wayland-server xkbcommon` -std=c++2b -Wno-narrowing $< -o $@
+	$(CXX) -c -fPIC $(EXTRA_FLAGS) -g -I/usr/include -I/usr/include/hyprland -I/usr/include/hyprland/src -I/usr/include/hyprland/protocols `pkg-config --cflags pixman-1 libdrm pangocairo libinput libudev wayland-server xkbcommon` -std=c++2b -Wno-narrowing $< -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)
