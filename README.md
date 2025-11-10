@@ -104,8 +104,8 @@ You can configure a trackpad gesture to control the overview.
 ```ini
 # hyprland.conf
 
-# 3-finger swipe down to toggle the overview
-hyprview-gesture = 3,down,toggle
+# 3-finger swipe up/down to toggle the overview
+hyprview-gesture = 3,vertical,toggle
 
 # To remove a gesture
 hyprview-gesture = 3,down,unset

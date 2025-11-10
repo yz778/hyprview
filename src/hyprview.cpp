@@ -1,6 +1,8 @@
 #include "hyprview.hpp"
 #include <algorithm>
 #include <any>
+#include <numeric>
+#include <ranges>
 #include <unordered_set>
 #define private public
 #include <hyprland/src/Compositor.hpp>
@@ -34,6 +36,14 @@ void damageMonitor(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
   auto *instance = findInstanceForAnimation(thisptr);
   if (instance)
     instance->damage();
+}
+
+static float lerp(const float &from, const float &to, const float perc) {
+  return (to - from) * perc + from;
+}
+
+static Vector2D lerp(const Vector2D &from, const Vector2D &to, const float perc) {
+  return Vector2D{lerp(from.x, to.x, perc), lerp(from.y, to.y, perc)};
 }
 
 CHyprView::~CHyprView() {
@@ -127,7 +137,6 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
   // Setup scale animation
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
-  // Create smooth scale animation from small size to full size
   g_pAnimationManager->createAnimation(
       1.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
@@ -146,12 +155,16 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
   size->setUpdateCallback(damageMonitor);
   pos->setUpdateCallback(damageMonitor);
 
+  // Set to initial value and warp (no animation yet)
+  scale->setValueAndWarp(0.0f);
+  size->setValueAndWarp(fullMonitorSize);
+  pos->setValueAndWarp({0, 0});
+
+  // For keyboard shortcut, animate to target; for swipe, gesture controls it
   if (!swipe) {
-    *scale = 0.8f; // Start at 80% scale
+    *scale = 1.0f;
     *size = fullMonitorSize;
     *pos = {0, 0};
-  } else {
-    *scale = 0.0f; // Start at 0% scale for swipe
   }
 
   // Set openedID to first window (for swipe gestures)
@@ -796,12 +809,9 @@ void CHyprView::close() {
     }
   }
 
-  // STEP 2: Clear images and cleanup immediately
-  Debug::log(LOG, "[hyprview] close(): Clearing images and cleanup");
-  images.clear();
-  bgFramebuffer.release();
-  g_pInputManager->unsetCursorImage();
-  g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
+  // STEP 2: Start closing animationi - animate scale back to 0
+  Debug::log(LOG, "[hyprview] close(): Start closing animation");
+  *scale = 0.0f;
 
   // STEP 3: Focus the selected window to trigger all lifecycle events
   if (userExplicitlySelected && selectedWindow) {
@@ -816,11 +826,14 @@ void CHyprView::onPreRender() {
     redrawAll(false);
   }
 
-  // If we're closing, mark as ready for cleanup on next frame
-  // This ensures the masking layer stays visible for one more frame while windows settle
-  if (closing && !readyForCleanup) {
+  // If we're closing and animation has finished, do cleanup
+  if (closing && scale->value() <= 0.01f && !readyForCleanup) {
+    Debug::log(LOG, "[hyprview] onPreRender(): Closing animation complete, cleaning up");
     readyForCleanup = true;
-    Debug::log(LOG, "[hyprview] onPreRender(): Marked as ready for cleanup");
+    images.clear();
+    bgFramebuffer.release();
+    g_pInputManager->unsetCursorImage();
+    g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
 }
 
@@ -888,7 +901,28 @@ void CHyprView::fullRender() {
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 
-  for (size_t i = 0; i < images.size(); ++i) {
+  std::unordered_map<CWindow*, size_t> historyPos;
+  const auto &focusHistory = g_pCompositor->m_windowFocusHistory;
+  historyPos.reserve(focusHistory.size());
+  for (auto &&[i, window] : focusHistory | std::views::enumerate)
+    historyPos.try_emplace(window.get(), i);
+
+  std::vector<size_t> renderOrder(images.size());
+  std::iota(renderOrder.begin(), renderOrder.end(), 0);
+
+  std::stable_sort(renderOrder.begin(), renderOrder.end(), [this, &historyPos](size_t a, size_t b) {
+    auto winA = images[a].pWindow;
+    auto winB = images[b].pWindow;
+    if (!winA || !winB)
+	  return false;
+    auto itA = historyPos.find(winA.get());
+    auto itB = historyPos.find(winB.get());
+	if (itA == historyPos.end() || itB == historyPos.end())
+		return false;
+    return itA->second > itB->second;
+  });
+
+  for (auto i : renderOrder) {
     const Vector2D &textureSize = images[i].fb.m_size;
 
     if (textureSize.x < 1 || textureSize.y < 1)
@@ -914,36 +948,25 @@ void CHyprView::fullRender() {
     // Center the window within its tile
     const double offsetX = (tileBox.width - newSize.x) / 2.0;
     const double offsetY = (tileBox.height - newSize.y) / 2.0;
+    Vector2D newPos = {tileBox.x + offsetX, tileBox.y + offsetY};
 
-    CBox windowBox = {tileBox.x + offsetX, tileBox.y + offsetY, newSize.x,
-                      newSize.y};
-    CBox borderBox = {windowBox.x - BORDER_WIDTH, windowBox.y - BORDER_WIDTH,
-                      windowBox.width + 2 * BORDER_WIDTH,
-                      windowBox.height + 2 * BORDER_WIDTH};
+    // Interpolate position and size for move animation
+    Vector2D originalPosLocal = images[i].originalPos - pMonitor->m_position;
+    Vector2D animPos = lerp(originalPosLocal, newPos, currentScale);
+    Vector2D animSize = lerp(images[i].originalSize, newSize, currentScale);
+
+    CBox windowBox = {animPos.x, animPos.y, animSize.x, animSize.y};
+    CBox borderBox = {
+      windowBox.x - BORDER_WIDTH,
+      windowBox.y - BORDER_WIDTH,
+      windowBox.width + 2 * BORDER_WIDTH,
+      windowBox.height + 2 * BORDER_WIDTH
+    };
+
 
     const bool ISACTIVE = images[i].pWindow.lock() == PLASTWINDOW;
     const auto &BORDERCOLOR =
         ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
-
-    // Apply scaling to the center of the tile
-    if (currentScale != 1.0f) {
-      // Calculate center of the tile
-      double centerX = tileBox.x + tileBox.width / 2.0;
-      double centerY = tileBox.y + tileBox.height / 2.0;
-
-      // Scale the window box around the center
-      double scaledWidth = windowBox.width * currentScale;
-      double scaledHeight = windowBox.height * currentScale;
-      double scaledX = centerX - scaledWidth / 2.0;
-      double scaledY = centerY - scaledHeight / 2.0;
-
-      windowBox = {scaledX, scaledY, scaledWidth, scaledHeight};
-
-      // Recalculate border box based on scaled window
-      borderBox = {scaledX - BORDER_WIDTH, scaledY - BORDER_WIDTH,
-                   scaledWidth + 2 * BORDER_WIDTH,
-                   scaledHeight + 2 * BORDER_WIDTH};
-    }
 
     // Translate both boxes for the overview animation
     borderBox.translate(pos->value());
@@ -1182,15 +1205,6 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   }
 }
 
-static float lerp(const float &from, const float &to, const float perc) {
-  return (to - from) * perc + from;
-}
-
-static Vector2D lerp(const Vector2D &from, const Vector2D &to,
-                     const float perc) {
-  return Vector2D{lerp(from.x, to.x, perc), lerp(from.y, to.y, perc)};
-}
-
 void CHyprView::setClosing(bool closing_) { closing = closing_; }
 
 void CHyprView::resetSwipe() { swipeWasCommenced = false; }
@@ -1207,14 +1221,9 @@ void CHyprView::onSwipeUpdate(double delta) {
           ->getDataStaticPtr();
 
   // Calculate progress percentage based on swipe direction
-  const float PERC =
-      closing ? std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0)
-              : 1.0 - std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
-
-  // Update scale for smooth scale in/out during swipe
-  // PERC is 0..1, where 1.0 means fully swiped
-  // When swiping open (not closing), scale from 0.0 to 1.0
-  // When swiping close (closing), scale from 1.0 to 0.0
+  // For opening: delta 0 -> distance means scale 0 -> 1 (original -> tile)
+  // For closing: delta 0 -> distance means scale 1 -> 0 (tile -> original)
+  const float PERC = std::clamp(delta / (double) **PDISTANCE, 0.0, 1.0);
   scale->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
 }
 
