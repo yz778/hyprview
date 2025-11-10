@@ -901,7 +901,7 @@ void CHyprView::fullRender() {
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
 
-  std::unordered_map<CWindow*, size_t> historyPos;
+  std::unordered_map<CWindow *, size_t> historyPos;
   const auto &focusHistory = g_pCompositor->m_windowFocusHistory;
   historyPos.reserve(focusHistory.size());
   for (auto &&[i, window] : focusHistory | std::views::enumerate)
@@ -914,11 +914,11 @@ void CHyprView::fullRender() {
     auto winA = images[a].pWindow;
     auto winB = images[b].pWindow;
     if (!winA || !winB)
-	  return false;
+      return false;
     auto itA = historyPos.find(winA.get());
     auto itB = historyPos.find(winB.get());
-	if (itA == historyPos.end() || itB == historyPos.end())
-		return false;
+    if (itA == historyPos.end() || itB == historyPos.end())
+      return false;
     return itA->second > itB->second;
   });
 
@@ -957,12 +957,10 @@ void CHyprView::fullRender() {
 
     CBox windowBox = {animPos.x, animPos.y, animSize.x, animSize.y};
     CBox borderBox = {
-      windowBox.x - BORDER_WIDTH,
-      windowBox.y - BORDER_WIDTH,
-      windowBox.width + 2 * BORDER_WIDTH,
-      windowBox.height + 2 * BORDER_WIDTH
-    };
-
+        windowBox.x - BORDER_WIDTH,
+        windowBox.y - BORDER_WIDTH,
+        windowBox.width + 2 * BORDER_WIDTH,
+        windowBox.height + 2 * BORDER_WIDTH};
 
     const bool ISACTIVE = images[i].pWindow.lock() == PLASTWINDOW;
     const auto &BORDERCOLOR =
@@ -1223,7 +1221,7 @@ void CHyprView::onSwipeUpdate(double delta) {
   // Calculate progress percentage based on swipe direction
   // For opening: delta 0 -> distance means scale 0 -> 1 (original -> tile)
   // For closing: delta 0 -> distance means scale 1 -> 0 (tile -> original)
-  const float PERC = std::clamp(delta / (double) **PDISTANCE, 0.0, 1.0);
+  const float PERC = std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
   scale->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
 }
 
@@ -1281,9 +1279,9 @@ void CHyprView::updateHoverState(int newIndex) {
 
   currentHoveredIndex = newIndex;
 
-  static auto *const *PFOLLOWMOUSE = (Hyprlang::INT *const *) HyprlandAPI::getConfigValue(
-    PHANDLE, "input:follow_mouse"
-  )->getDataStaticPtr();
+  static auto *const *PFOLLOWMOUSE = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
+                                         PHANDLE, "input:follow_mouse")
+                                         ->getDataStaticPtr();
 
   if (newIndex >= 0 && newIndex < (int)images.size()) {
     auto window = images[newIndex].pWindow.lock();
