@@ -900,26 +900,37 @@ void CHyprView::fullRender() {
   }
 
   const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
+  const auto PLASTWORKSPACE = g_pCompositor->m_lastWindow.lock();
 
-  std::unordered_map<CWindow *, size_t> historyPos;
-  const auto &focusHistory = g_pCompositor->m_windowFocusHistory;
-  historyPos.reserve(focusHistory.size());
-  for (auto &&[i, window] : focusHistory | std::views::enumerate)
-    historyPos.try_emplace(window.get(), i);
+  // Floating windows are rendered on top of tiled windows.
+  // Z-order of windows from other workspaces does not matter.
+  std::unordered_map<CWindow *, size_t> zOrderMap;
+  zOrderMap.reserve(g_pCompositor->m_windows.size());
+  size_t zOrder = 0;
+  for (auto &window : g_pCompositor->m_windows) {
+    if (window->m_workspace == PLASTWORKSPACE && !window->m_isFloating)
+      zOrderMap.try_emplace(window.get(), zOrder++);
+  }
+  for (auto &window : g_pCompositor->m_windows) {
+    if (window->m_workspace == PLASTWORKSPACE && window->m_isFloating)
+      zOrderMap.try_emplace(window.get(), zOrder++);
+  }
 
   std::vector<size_t> renderOrder(images.size());
   std::iota(renderOrder.begin(), renderOrder.end(), 0);
 
-  std::stable_sort(renderOrder.begin(), renderOrder.end(), [this, &historyPos](size_t a, size_t b) {
+  std::stable_sort(renderOrder.begin(), renderOrder.end(), [this, &zOrderMap](size_t a, size_t b) {
     auto winA = images[a].pWindow;
     auto winB = images[b].pWindow;
     if (!winA || !winB)
       return false;
-    auto itA = historyPos.find(winA.get());
-    auto itB = historyPos.find(winB.get());
-    if (itA == historyPos.end() || itB == historyPos.end())
+    auto itA = zOrderMap.find(winA.get());
+    auto itB = zOrderMap.find(winB.get());
+    // don't care when one window is from a different workspace
+    // (so, not in the map): already handled in the constructor
+    if (itA == zOrderMap.end() || itB == zOrderMap.end())
       return false;
-    return itA->second > itB->second;
+    return itA->second < itB->second;
   });
 
   for (auto i : renderOrder) {
