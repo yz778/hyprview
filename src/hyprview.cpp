@@ -1290,19 +1290,19 @@ void CHyprView::updateHoverState(int newIndex) {
 
   currentHoveredIndex = newIndex;
 
-  static auto *const *PFOLLOWMOUSE = (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-                                         PHANDLE, "input:follow_mouse")
-                                         ->getDataStaticPtr();
-
+  // Always focus window on hover in overview mode - this is expected behavior
+  // for a task switcher/window picker, regardless of global follow_mouse setting
   if (newIndex >= 0 && newIndex < (int)images.size()) {
     auto window = images[newIndex].pWindow.lock();
     if (window && window->m_isMapped) {
-      if (**PFOLLOWMOUSE == 1) {
-        Debug::log(LOG,
-                   "[hyprview] updateHoverState: Focusing window {} at index {}",
-                   window->m_title, newIndex);
-        g_pCompositor->focusWindow(window);
-      }
+      Debug::log(LOG,
+                 "[hyprview] updateHoverState: Focusing window {} at index {}",
+                 window->m_title, newIndex);
+
+      // Focus the window and ensure it becomes the compositor's last focused window
+      g_pCompositor->focusWindow(window);
+      g_pCompositor->m_lastWindow = window;
+
       lastHoveredWindow = window;
     }
   }
