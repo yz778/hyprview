@@ -13,6 +13,7 @@
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/managers/animation/AnimationManager.hpp>
 #include <hyprland/src/managers/animation/DesktopAnimationManager.hpp>
+#include <hyprland/src/managers/cursor/CursorShapeOverrideController.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #undef private
@@ -70,7 +71,7 @@ CHyprView::~CHyprView() {
     g_pHyprRenderer->makeEGLCurrent();
     images.clear();
     bgFramebuffer.release();
-    g_pInputManager->unsetCursorImage();
+    Cursor::overrideController->unsetOverride(Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
     g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
 }
@@ -492,7 +493,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
-  g_pInputManager->setCursorImageUntilUnset("left_ptr");
+  Cursor::overrideController->setOverride("left_ptr", Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
 
   lastMousePosLocal =
       g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
@@ -832,7 +833,7 @@ void CHyprView::onPreRender() {
     readyForCleanup = true;
     images.clear();
     bgFramebuffer.release();
-    g_pInputManager->unsetCursorImage();
+    Cursor::overrideController->unsetOverride(Cursor::CURSOR_OVERRIDE_SPECIAL_ACTION);
     g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
   }
 }
