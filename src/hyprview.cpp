@@ -1,3 +1,4 @@
+#include <linux/input-event-codes.h>
 #include "hyprview.hpp"
 #include <algorithm>
 #include <any>
@@ -29,10 +30,12 @@ using Desktop::View::CWindow;
 // Helper to find the CHyprView instance for a given animation variable
 CHyprView *findInstanceForAnimation(
     WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
+  if (!thisptr)
+    return nullptr;
   for (auto &[monitor, instance] : g_pHyprViewInstances) {
-    if (instance && (instance->size.get() == thisptr.lock().get() ||
-                     instance->pos.get() == thisptr.lock().get() ||
-                     instance->scale.get() == thisptr.lock().get())) {
+    if (instance && (instance->size.get() == thisptr.get() ||
+                     instance->pos.get() == thisptr.get() ||
+                     instance->scale.get() == thisptr.get())) {
       return instance.get();
     }
   }
@@ -69,6 +72,12 @@ CHyprView::~CHyprView() {
         window->moveToWorkspace(image.originalWorkspace);
       }
     }
+    for (const auto &image : images) {
+      auto window = image.pWindow.lock();
+      if (window && window->m_isMapped && image.originalFullscreen.internal != Fullscreen::FSMODE_NONE)
+        Fullscreen::controller()->setFullscreenMode(window, image.originalFullscreen.internal,
+                                                    image.originalFullscreen.client);
+    }
   }
 
   // Always cleanup resources in destructor if they haven't been cleaned yet
@@ -78,7 +87,9 @@ CHyprView::~CHyprView() {
     images.clear();
     if (bgFramebuffer)
       bgFramebuffer->release();
-    g_pPointerManager->resetCursorImage();
+    // resetCursorImage() clears the buffer without invalidating the renderer's
+    // cached shape, so later requests for that same shape can leave it invisible.
+    g_pHyprRenderer->setCursorFromName("left_ptr", true);
   }
 }
 
@@ -89,8 +100,17 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
 
   // Save original workspaces BEFORE moving
   std::unordered_map<PHLWINDOW, PHLWORKSPACE> originalWorkspaces;
+  std::unordered_map<PHLWINDOW, Fullscreen::SFullscreenMode> originalFullscreen;
   for (auto &window : windowsToRender) {
     originalWorkspaces[window] = window->m_workspace;
+    originalFullscreen[window] = Fullscreen::controller()->getFullscreenModes(window);
+  }
+
+  // The overview owns rendering temporarily. Remove covering fullscreen state
+  // before combining windows from different workspaces, keeping client state.
+  for (auto &window : windowsToRender) {
+    if (originalFullscreen[window].internal != Fullscreen::FSMODE_NONE)
+      Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
   }
 
   // Move windows to active workspace so they have valid surfaces for rendering
@@ -113,6 +133,7 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     image.originalPos = window->positionAnimation()->value();
     image.originalSize = window->sizeAnimation()->value();
     image.originalWorkspace = originalWorkspaces[window];
+    image.originalFullscreen = originalFullscreen[window];
 
     const auto RENDERSIZE =
         (window->sizeAnimation()->value() * pMonitor->m_scale).floor();
@@ -264,91 +285,39 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}",
              (void *)origWindow.get());
 
-  static auto *const *PMARGIN =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:margin")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PMARGIN("plugin:hyprview:margin");
 
-  MARGIN = **PMARGIN;
+  MARGIN = *PMARGIN;
 
-  static auto *const *PACTIVEBORDERCOL =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:active_border_color")
-          ->getDataStaticPtr();
-  static auto *const *PINACTIVEBORDERCOL =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:inactive_border_color")
-          ->getDataStaticPtr();
-  static auto *const *PBORDERWIDTH =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:border_width")
-          ->getDataStaticPtr();
-  static auto *const *PBORDERRADIUS =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:border_radius")
-          ->getDataStaticPtr();
-  static auto *const *PBGDIM =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:bg_dim")
-          ->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORENABLED =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_enabled")
-          ->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORFONTSIZE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_font_size")
-          ->getDataStaticPtr();
-  static auto PWORKSPACEINDICATORPOSITION_VAL = HyprlandAPI::getConfigValue(
-      PHANDLE, "plugin:hyprview:workspace_indicator_position");
-  static auto *const *PWORKSPACEINDICATORBGOPACITY =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEENABLED =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_enabled")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEFONTSIZE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_font_size")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEBGOPACITY =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_bg_opacity")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWTEXTCOLOR =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_text_color")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PACTIVEBORDERCOL("plugin:hyprview:active_border_color");
+  static const CConfigValue<Config::INTEGER> PINACTIVEBORDERCOL("plugin:hyprview:inactive_border_color");
+  static const CConfigValue<Config::INTEGER> PBORDERWIDTH("plugin:hyprview:border_width");
+  static const CConfigValue<Config::INTEGER> PBORDERRADIUS("plugin:hyprview:border_radius");
+  static const CConfigValue<Config::FLOAT> PBGDIM("plugin:hyprview:bg_dim");
+  static const CConfigValue<Config::INTEGER> PWORKSPACEINDICATORENABLED("plugin:hyprview:workspace_indicator_enabled");
+  static const CConfigValue<Config::INTEGER> PWORKSPACEINDICATORFONTSIZE("plugin:hyprview:workspace_indicator_font_size");
+  static const CConfigValue<Config::STRING> PWORKSPACEINDICATORPOSITION_VAL("plugin:hyprview:workspace_indicator_position");
+  static const CConfigValue<Config::FLOAT> PWORKSPACEINDICATORBGOPACITY("plugin:hyprview:workspace_indicator_bg_opacity");
+  static const CConfigValue<Config::INTEGER> PWINDOWNAMEENABLED("plugin:hyprview:window_name_enabled");
+  static const CConfigValue<Config::INTEGER> PWINDOWNAMEFONTSIZE("plugin:hyprview:window_name_font_size");
+  static const CConfigValue<Config::FLOAT> PWINDOWNAMEBGOPACITY("plugin:hyprview:window_name_bg_opacity");
+  static const CConfigValue<Config::INTEGER> PWINDOWTEXTCOLOR("plugin:hyprview:window_text_color");
 
-  ACTIVE_BORDER_COLOR = **PACTIVEBORDERCOL;
-  INACTIVE_BORDER_COLOR = **PINACTIVEBORDERCOL;
-  BORDER_WIDTH = **PBORDERWIDTH;
-  BORDER_RADIUS = **PBORDERRADIUS;
-  BG_DIM = **PBGDIM;
-  WORKSPACE_INDICATOR_ENABLED = **PWORKSPACEINDICATORENABLED != 0;
-  WORKSPACE_INDICATOR_FONT_SIZE = **PWORKSPACEINDICATORFONTSIZE;
-  WORKSPACE_INDICATOR_BG_OPACITY = **PWORKSPACEINDICATORBGOPACITY;
+  ACTIVE_BORDER_COLOR = *PACTIVEBORDERCOL;
+  INACTIVE_BORDER_COLOR = *PINACTIVEBORDERCOL;
+  BORDER_WIDTH = *PBORDERWIDTH;
+  BORDER_RADIUS = *PBORDERRADIUS;
+  BG_DIM = *PBGDIM;
+  WORKSPACE_INDICATOR_ENABLED = *PWORKSPACEINDICATORENABLED != 0;
+  WORKSPACE_INDICATOR_FONT_SIZE = *PWORKSPACEINDICATORFONTSIZE;
+  WORKSPACE_INDICATOR_BG_OPACITY = *PWORKSPACEINDICATORBGOPACITY;
   WORKSPACE_INDICATOR_POSITION = "";
-  WINDOW_NAME_ENABLED = **PWINDOWNAMEENABLED != 0;
-  WINDOW_NAME_FONT_SIZE = **PWINDOWNAMEFONTSIZE;
-  WINDOW_NAME_BG_OPACITY = **PWINDOWNAMEBGOPACITY;
-  WINDOW_TEXT_COLOR = **PWINDOWTEXTCOLOR;
+  WINDOW_NAME_ENABLED = *PWINDOWNAMEENABLED != 0;
+  WINDOW_NAME_FONT_SIZE = *PWINDOWNAMEFONTSIZE;
+  WINDOW_NAME_BG_OPACITY = *PWINDOWNAMEBGOPACITY;
+  WINDOW_TEXT_COLOR = *PWINDOWTEXTCOLOR;
 
-  try {
-    if (PWORKSPACEINDICATORPOSITION_VAL) {
-      if (auto strPtr =
-              (Hyprlang::STRING const *)
-                  PWORKSPACEINDICATORPOSITION_VAL->getDataStaticPtr()) {
-        if (*strPtr) {
-          WORKSPACE_INDICATOR_POSITION = *strPtr;
-        }
-      }
-    }
-  } catch (...) {
-    // Keep default on any exception
-  }
+  WORKSPACE_INDICATOR_POSITION = *PWORKSPACEINDICATORPOSITION_VAL;
 
   std::vector<PHLWINDOW> windowsToRender;
 
@@ -396,10 +365,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   for (auto &w : Desktop::windowState()->windows()) {
     if (!w->m_isMapped || w->isHidden())
-      continue;
-
-    // Skip fullscreen windows to prevent problems and crashes
-    if (Fullscreen::controller()->isFullscreen(w))
       continue;
 
     if (!shouldIncludeWindow(w))
@@ -501,7 +466,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
-  g_pCursorManager->setCursorFromName("left_ptr");
+  g_pHyprRenderer->setCursorFromName("left_ptr", true);
 
   lastMousePosLocal =
       g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
@@ -513,7 +478,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is actually on this monitor BEFORE cancelling
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -543,7 +508,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is on this monitor BEFORE cancelling
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -555,8 +520,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return; // Mouse is on a different monitor - don't cancel event
     }
 
+    static const CConfigValue<Config::INTEGER> PFULLSCREENONSELECT(
+        "plugin:hyprview:fullscreen_on_select");
     // If explicitly turned on, project click to real window
-    if (stickyOn) {
+    if (stickyOn && !*PFULLSCREENONSELECT) {
       info.cancelled = true;
 
       Vector2D localMousePos = globalMousePos - monitorPos;
@@ -570,8 +537,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
           // Calculate mouse position relative to tile
           const CBox &tileBox = images[tileIndex].box;
-          Vector2D mousePosInTile = {localMousePos.x - tileBox.x,
-                                     localMousePos.y - tileBox.y};
+          Vector2D mousePosInTile = {localMousePos.x * pMonitor->m_scale - tileBox.x,
+                                     localMousePos.y * pMonitor->m_scale - tileBox.y};
 
           // Calculate scale factor from tile to real window
           Vector2D realWindowSize = window->sizeAnimation()->value();
@@ -594,17 +561,24 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return;
     }
 
-    // Normal mode: cancel click, select window, and close ALL overviews except
-    // forced ones
     info.cancelled = true;
-    selectHoveredWindow();
+    lastMousePosLocal = globalMousePos - monitorPos;
+    const int tileIndex = getWindowIndexFromMousePos(lastMousePosLocal);
+    if (tileIndex < 0 || tileIndex >= (int)images.size())
+      return;
+    auto selectedWindow = images[tileIndex].pWindow.lock();
+    if (!selectedWindow || !selectedWindow->m_isMapped)
+      return;
 
-    // Close all overview instances except those with stickyOn=true
+    currentHoveredIndex = tileIndex;
+    selectHoveredWindow();
+    // Restore other monitors first, then focus this selection.
     for (auto &[monitor, instance] : g_pHyprViewInstances) {
-      if (instance && !instance->stickyOn) {
+      if (instance && instance.get() != this &&
+          (!instance->stickyOn || *PFULLSCREENONSELECT))
         instance->close();
-      }
     }
+    close();
   };
 
   auto onMouseAxis = [this](SCallbackInfo &info) {
@@ -614,7 +588,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is on this monitor
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -651,7 +625,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   auto& EV = Event::bus()->m_events;
   mouseMoveHook   = EV.input.mouse.move.listen([onCursorMove](const Vector2D&, SCallbackInfo& info) { onCursorMove(info); });
   touchMoveHook   = EV.input.touch.motion.listen([onCursorMove](const ITouch::SMotionEvent&, SCallbackInfo& info) { onCursorMove(info); });
-  mouseButtonHook = EV.input.mouse.button.listen([onCursorSelect](const IPointer::SButtonEvent&, SCallbackInfo& info) { onCursorSelect(info); });
+  mouseButtonHook = EV.input.mouse.button.listen([onCursorSelect](const IPointer::SButtonEvent& event, SCallbackInfo& info) {
+    if (event.button == BTN_LEFT && event.state == WL_POINTER_BUTTON_STATE_PRESSED)
+      onCursorSelect(info);
+  });
   mouseAxisHook   = EV.input.mouse.axis.listen([onMouseAxis](const IPointer::SAxisEvent&, SCallbackInfo& info) { onMouseAxis(info); });
   touchDownHook   = EV.input.touch.down.listen([onCursorSelect](const ITouch::SDownEvent&, SCallbackInfo& info) { onCursorSelect(info); });
 
@@ -818,6 +795,14 @@ void CHyprView::close() {
     }
   }
 
+  // Restore fullscreen only after all windows are back on their workspaces.
+  for (const auto &image : images) {
+    auto window = image.pWindow.lock();
+    if (window && window->m_isMapped && image.originalFullscreen.internal != Fullscreen::FSMODE_NONE)
+      Fullscreen::controller()->setFullscreenMode(window, image.originalFullscreen.internal,
+                                                  image.originalFullscreen.client);
+  }
+
   // STEP 2: Start closing animationi - animate scale back to 0
   Debug::log(LOG, "[hyprview] close(): Start closing animation");
   *scale = 0.0f;
@@ -826,6 +811,11 @@ void CHyprView::close() {
   if (userExplicitlySelected && selectedWindow) {
     Desktop::focusState()->fullWindowFocus(selectedWindow, Desktop::FOCUS_REASON_KEYBIND);
     Config::Actions::alterZOrder("top");
+    static const CConfigValue<Config::INTEGER> PFULLSCREENONSELECT(
+        "plugin:hyprview:fullscreen_on_select");
+    if (*PFULLSCREENONSELECT)
+      Fullscreen::controller()->setFullscreenMode(selectedWindow, Fullscreen::FSMODE_FULLSCREEN,
+                                                  Fullscreen::FSMODE_FULLSCREEN);
   }
 }
 
@@ -842,7 +832,9 @@ void CHyprView::onPreRender() {
     images.clear();
     if (bgFramebuffer)
       bgFramebuffer->release();
-    g_pPointerManager->resetCursorImage();
+    // resetCursorImage() clears the buffer without invalidating the renderer's
+    // cached shape, so later requests for that same shape can leave it invisible.
+    g_pHyprRenderer->setCursorFromName("left_ptr", true);
   }
 }
 
@@ -1236,15 +1228,12 @@ void CHyprView::onSwipeUpdate(double delta) {
   if (swipeWasCommenced)
     return;
 
-  static auto *const *PDISTANCE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:gesture_distance")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PDISTANCE("plugin:hyprview:gesture_distance");
 
   // Calculate progress percentage based on swipe direction
   // For opening: delta 0 -> distance means scale 0 -> 1 (original -> tile)
   // For closing: delta 0 -> distance means scale 1 -> 0 (tile -> original)
-  const float PERC = std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
+  const float PERC = std::clamp(delta / (double)*PDISTANCE, 0.0, 1.0);
   scale->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
 }
 
@@ -1266,7 +1255,8 @@ void CHyprView::onSwipeEnd() {
   m_isSwiping = false;
 }
 
-int CHyprView::getWindowIndexFromMousePos(const Vector2D &mousePos) {
+int CHyprView::getWindowIndexFromMousePos(const Vector2D &logicalMousePos) {
+  const Vector2D mousePos = logicalMousePos * pMonitor->m_scale;
   if (images.empty())
     return -1;
 

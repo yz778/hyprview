@@ -56,7 +56,7 @@ enum class EWindowCollectionMode {
 - `CViewGesture::begin/update/end()` - Swipe gesture handling
 
 ### Global Configuration Values
-Located in `main.cpp`, registered via `HyprlandAPI::addConfigValue`:
+Located in `main.cpp`, registered via `HyprlandAPI::addConfigValueV2`:
 - `plugin:hyprview:active_border_color`
 - `plugin:hyprview:inactive_border_color`
 - `plugin:hyprview:border_width`
@@ -72,6 +72,7 @@ Located in `main.cpp`, registered via `HyprlandAPI::addConfigValue`:
 - `plugin:hyprview:window_name_bg_opacity`
 - `plugin:hyprview:window_text_color`
 - `plugin:hyprview:gesture_distance`
+- `plugin:hyprview:fullscreen_on_select` (default 0)
 
 ### Framebuffer Management
 - Individual framebuffers per window stored in `SWindowImage::fb`
@@ -112,7 +113,7 @@ The plugin provides flexible dispatcher commands with various options:
 ### Gesture Handling
 - 3-finger swipe gestures handled by `CViewGesture`
 - Swipe detection uses distance threshold from config
-- Gestures blocked when overview is active to prevent conflicts
+- Legacy gestures blocked when overview is active to prevent conflicts; Lua callbacks remain available
 - Swipe gestures support opening and closing the overview
 - Configurable via `hyprview-gesture` keyword
 

@@ -20,12 +20,14 @@ https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
 ## Features
 
+* **Fullscreen Windows:** Include fullscreen windows and restore their original fullscreen modes and workspaces when dismissing the overview.
+* **Optional Fullscreen Selection:** Enable `fullscreen_on_select` to make an explicitly selected window fullscreen.
 * **Workspace Overview:** See all your open windows on the current workspace at a glance.
 * **Multi-Workspace Modes:** View windows from the current workspace, all workspaces on the monitor, or include special (scratchpad) workspaces.
 * **Workspace Indicator:** Each window tile shows its workspace ID (displayed as "wsid:N") in a configurable position with customizable size and styling. The indicator color automatically matches the window's border color (active or inactive) for easy navigation across multiple workspaces.
 * **Window Selection:** Hover to focus and click to select a window, automatically closing the overview.
 * **Trackpad Gestures:** Use swipe gestures to open and close the overview.
-* **Gesture Conflict Prevention:** Automatically blocks workspace gestures when overview is active to prevent accidental workspace switches.
+* **Gesture Conflict Prevention:** Blocks workspace gestures in legacy configurations. Lua configurations retain their configured gesture callbacks while the overview is open.
 * **Smooth Animations:** Animated transitions when opening/closing the overview.
 * **Multi-monitor Support:** Provides a separate overview for each monitor with proper scaling and positioning.
 * **Customizable Appearance:** Change colors, borders, margins, background dimming, and radii.
@@ -50,6 +52,54 @@ hyprpm enable hyprview
 ```ini
 plugin = /full_path_to/hyprview.so
 ```
+
+### Lua configuration (Hyprland 0.56)
+
+Load the plugin before invoking its callbacks. The plugin registers settings with
+Hyprland's typed configuration API and exposes `hl.plugin.hyprview.toggle(args)`.
+It accepts the same arguments as the `hyprview:toggle` dispatcher and returns
+`success, error`. Call it inside a gesture or binding callback, after loading:
+
+```lua
+hl.gesture({ fingers = 3, direction = "up", action = function()
+  if hl.plugin.hyprview then
+    hl.plugin.hyprview.toggle("on all special")
+  end
+end })
+hl.gesture({ fingers = 3, direction = "down", action = function()
+  if hl.plugin.hyprview then
+    hl.plugin.hyprview.toggle("off")
+  end
+end })
+```
+
+An explicit `off` closes an overview opened with `on`; add `monitor:NAME` to
+close only that monitor. Lua gestures remain enabled while the overview is open,
+so a downward callback can close it. Avoid assigning competing workspace gestures
+to the same fingers/direction. Legacy `hyprview-gesture` remains available in
+`hyprland.conf`.
+
+### Fullscreen selection
+
+By default, selecting a preview retains its previous fullscreen state. The
+existing sticky `on` mode also retains its behavior of focusing a preview without
+closing. To make a left-click or explicit selection close the overview and make
+the chosen window fullscreen, opt in:
+
+```lua
+-- Apply after the plugin is loaded (or in the config reload following its load).
+hl.config({ plugin = { hyprview = { fullscreen_on_select = 1 } } })
+```
+
+For legacy configuration:
+
+```ini
+plugin:hyprview:fullscreen_on_select = 1
+```
+
+The default is `0`. A downward gesture or `off` without a selection restores the
+original window states regardless of this setting. With the option enabled,
+clicking a preview also exits sticky `on` mode. Empty background clicks are ignored.
 
 ### Keybinds
 
