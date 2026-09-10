@@ -33,3 +33,11 @@ selection). The helper connects only to the test compositor's socket.
 `virtual-pointer.xml` comes from swaywm/wlr-protocols, at
 `unstable/wlr-virtual-pointer-unstable-v1.xml`; its upstream license notice is
 retained in the file.
+
+Use `--check-cursor` to verify that a cursor image remains after dismissal,
+selection, and unloading. This builds a small read-only observer plugin against
+the installed Hyprland headers and loads it only into the nested compositor.
+It requires a C++ compiler and `pkg-config --cflags hyprland` to resolve matching
+headers (set `PKG_CONFIG_PATH` if using hyprpm's header installation). The check
+fails on the previous cleanup code, which clears the cursor buffer while leaving
+the renderer's cached cursor shape intact.

@@ -87,7 +87,9 @@ CHyprView::~CHyprView() {
     images.clear();
     if (bgFramebuffer)
       bgFramebuffer->release();
-    g_pPointerManager->resetCursorImage();
+    // resetCursorImage() clears the buffer without invalidating the renderer's
+    // cached shape, so later requests for that same shape can leave it invisible.
+    g_pHyprRenderer->setCursorFromName("left_ptr", true);
   }
 }
 
@@ -464,7 +466,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
-  g_pCursorManager->setCursorFromName("left_ptr");
+  g_pHyprRenderer->setCursorFromName("left_ptr", true);
 
   lastMousePosLocal =
       g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
@@ -830,7 +832,9 @@ void CHyprView::onPreRender() {
     images.clear();
     if (bgFramebuffer)
       bgFramebuffer->release();
-    g_pPointerManager->resetCursorImage();
+    // resetCursorImage() clears the buffer without invalidating the renderer's
+    // cached shape, so later requests for that same shape can leave it invisible.
+    g_pHyprRenderer->setCursorFromName("left_ptr", true);
   }
 }
 

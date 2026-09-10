@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--fullscreen", action="store_true", help="start with a fullscreen window")
     parser.add_argument("--selection", choices=("default", "fullscreen"),
                         help="also exercise real pointer selection")
+    parser.add_argument("--check-cursor", action="store_true",
+                        help="build a test observer and check the cursor after closing")
     args = parser.parse_args()
     if not args.plugin.is_file() or not args.parent_display:
         parser.error("provide a built plugin and an existing parent Wayland display")
@@ -30,6 +32,12 @@ def main():
     # Retain the log and screenshots on failure as well as success.
     root = Path(tempfile.mkdtemp(prefix="hyprview-test-"))
     print(f"Test artifacts: {root}", flush=True)
+    if args.check_cursor:
+        flags = shlex.split(subprocess.check_output(
+            ["pkg-config", "--cflags", "hyprland"], text=True))
+        subprocess.run(["c++", "-shared", "-fPIC", "-fno-gnu-unique", "-std=c++2b",
+                        *flags, str(Path(__file__).resolve().parent / "cursor-probe.cpp"),
+                        "-o", str(root / "cursor-probe.so")], check=True)
     if args.selection:
         test_dir = Path(__file__).resolve().parent
         for mode, output in (("client-header", "virtual-pointer.h"), ("private-code", "virtual-pointer.c")):
@@ -65,7 +73,9 @@ def main():
             def ctl(*command):
                 assert child.poll() is None, "nested compositor crashed"
                 result = subprocess.run(["hyprctl", "-i", instance["instance"], *command],
-                                        capture_output=True, text=True, timeout=10, check=True)
+                                        capture_output=True, text=True, timeout=10)
+                if result.returncode:
+                    raise RuntimeError(f"hyprctl failed: {result.stdout} {result.stderr}")
                 if "error" in result.stdout.lower() or "invalid" in result.stdout.lower():
                     raise RuntimeError(result.stdout)
                 return result.stdout
@@ -84,6 +94,10 @@ def main():
                 lua(f"assert(hl.plugin.hyprview.toggle({json.dumps(command)}))")
                 time.sleep(1.5)
 
+            def check_cursor():
+                if args.check_cursor:
+                    lua('assert(hl.plugin.hyprview_test.has_cursor(), "cursor image disappeared")')
+
             def click(x, y):
                 # The protocol uses logical coordinates over all active outputs.
                 monitors = json.loads(ctl("-j", "monitors"))
@@ -101,6 +115,8 @@ def main():
             time.sleep(1)
             ctl("output", "create", "headless", "TEST")
             ctl("plugin", "load", str(args.plugin))
+            if args.check_cursor:
+                ctl("plugin", "load", str(root / "cursor-probe.so"))
             lua('hl.dispatch(hl.dsp.focus({monitor="TEST"}))')
             lua('hl.exec_cmd("foot --title=Hyprview-test-one"); '
                 'hl.exec_cmd("foot --title=Hyprview-test-two")')
@@ -118,6 +134,7 @@ def main():
             assert len({s[0] for s in before.values()}) == 2, before
             for cycle in range(3):
                 overview("on all special")
+                check_cursor()
                 if args.fullscreen:
                     assert all(c["fullscreen"] == 0 for c in clients()), clients()
                 if cycle == 0:
@@ -125,6 +142,7 @@ def main():
                                    env=dict(env, WAYLAND_DISPLAY=instance["wl_socket"]),
                                    check=True, timeout=10)
                 overview("off")
+                check_cursor()
                 assert state() == before, (before, state())
                 print(f"Open/close cycle {cycle + 1}: PASS", flush=True)
             ctl("reload")
@@ -132,6 +150,7 @@ def main():
             assert not ctl("configerrors").strip()
             overview("on all special")
             overview("off")
+            check_cursor()
             assert state() == before
             if args.selection:
                 if args.selection == "fullscreen":
@@ -149,6 +168,7 @@ def main():
                 assert len({c["workspace"]["id"] for c in clients()}) == 1
                 expected = next(addr for addr, saved in before.items() if saved[0] == other_workspace)
                 click(960, 380)
+                check_cursor()
                 active = json.loads(ctl("-j", "activewindow"))
                 assert active["address"] == expected, active
                 assert active["workspace"]["id"] == other_workspace, active
@@ -157,6 +177,7 @@ def main():
                 if args.selection == "fullscreen":
                     overview("on all special")
                     click(320, 380)
+                    check_cursor()
                     active = json.loads(ctl("-j", "activewindow"))
                     assert active["address"] == expected and active["fullscreen"] == 2, active
                 before = state()
@@ -165,6 +186,7 @@ def main():
             overview("on all special")
             ctl("plugin", "unload", str(args.plugin))
             time.sleep(1)
+            check_cursor()
             assert state() == before
             print("Reload, reopen, and unload restoration: PASS", flush=True)
         finally:
