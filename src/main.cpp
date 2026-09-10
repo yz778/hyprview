@@ -6,10 +6,13 @@
 #include "hyprview.hpp"
 #include <fstream>
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+using Event::SCallbackInfo;
 #include <hyprland/src/config/ConfigManager.hpp>
-#include <hyprland/src/debug/Log.hpp>
+#include "compat056.hpp"
 #include <hyprland/src/desktop/DesktopTypes.hpp>
-#include <hyprland/src/desktop/Window.hpp>
+#include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/managers/input/trackpad/GestureTypes.hpp>
 #include <hyprland/src/managers/input/trackpad/TrackpadGestures.hpp>
 #include <hyprland/src/render/Renderer.hpp>
@@ -23,7 +26,7 @@ inline CFunctionHook *g_pRenderWorkspaceHook = nullptr;
 inline CFunctionHook *g_pAddDamageHookA = nullptr;
 inline CFunctionHook *g_pAddDamageHookB = nullptr;
 typedef void (*origRenderWorkspace)(void *, PHLMONITOR, PHLWORKSPACE,
-                                    timespec *, const CBox &);
+                                    const Time::steady_tp &, const CBox &);
 typedef void (*origAddDamageA)(void *, const CBox &);
 typedef void (*origAddDamageB)(void *, const pixman_region32_t *);
 
@@ -35,7 +38,7 @@ APICALL EXPORT std::string PLUGIN_API_VERSION() { return HYPRLAND_API_VERSION; }
 static bool renderingOverview = false;
 
 static void hkRenderWorkspace(void *thisptr, PHLMONITOR pMonitor,
-                              PHLWORKSPACE pWorkspace, timespec *now,
+                              PHLWORKSPACE pWorkspace, const Time::steady_tp &now,
                               const CBox &geometry) {
   // Check if this monitor has an active overview
   auto it = g_pHyprViewInstances.find(pMonitor);
@@ -189,14 +192,14 @@ getTargetMonitors(const std::string &targetMonitorName) {
 
   if (targetMonitorName.empty()) {
     // No specific monitor - use ALL enabled monitors
-    for (auto &monitor : g_pCompositor->m_monitors) {
+    for (auto &monitor : State::monitorState()->monitors()) {
       if (monitor->m_enabled && monitor->m_activeWorkspace) {
         targets.push_back(monitor);
       }
     }
   } else {
     // Find monitor by name/description
-    for (auto &monitor : g_pCompositor->m_monitors) {
+    for (auto &monitor : State::monitorState()->monitors()) {
       if (!monitor->m_enabled)
         continue;
 
@@ -230,7 +233,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
   // Handle SELECT action
   if (parsedArgs.action == DispatcherArgs::Action::SELECT) {
-    auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
+    auto PMONITOR = Desktop::focusState()->monitor();
     if (PMONITOR) {
       auto it = g_pHyprViewInstances.find(PMONITOR);
       if (it != g_pHyprViewInstances.end() && it->second) {
@@ -243,7 +246,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
 
   // Handle DEBUG action
   if (parsedArgs.action == DispatcherArgs::Action::DEBUG) {
-    auto PMONITOR = g_pCompositor->m_lastMonitor.lock();
+    auto PMONITOR = Desktop::focusState()->monitor();
     if (!PMONITOR) {
       return {.success = false, .error = "No active monitor"};
     }
@@ -263,8 +266,8 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     out << "Placement algorithm: " << parsedArgs.placement << "\n";
 
     // Get monitor dimensions
-    Vector2D reservedTopLeft = PMONITOR->m_reservedTopLeft;
-    Vector2D reservedBottomRight = PMONITOR->m_reservedBottomRight;
+    Vector2D reservedTopLeft = Vector2D(PMONITOR->m_reservedArea.left(), PMONITOR->m_reservedArea.top());
+    Vector2D reservedBottomRight = Vector2D(PMONITOR->m_reservedArea.right(), PMONITOR->m_reservedArea.bottom());
     Vector2D fullMonitorSize = PMONITOR->m_pixelSize;
     Vector2D availableSize = {
         fullMonitorSize.x - reservedTopLeft.x - reservedBottomRight.x,
@@ -311,7 +314,7 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     };
 
     std::vector<PHLWINDOW> windowsToRender;
-    for (auto &w : g_pCompositor->m_windows) {
+    for (auto &w : Desktop::windowState()->windows()) {
       if (!w->m_isMapped || w->isHidden())
         continue;
       if (!shouldIncludeWindow(w))
@@ -327,9 +330,9 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     for (size_t i = 0; i < windowsToRender.size(); ++i) {
       auto &w = windowsToRender[i];
       windowInfos.push_back(
-          {i, w->m_realSize->value().x, w->m_realSize->value().y});
+          {i, w->sizeAnimation()->value().x, w->sizeAnimation()->value().y});
       out << "  [" << i << "] \"" << w->m_title << "\" - "
-          << w->m_realSize->value().x << "x" << w->m_realSize->value().y
+          << w->sizeAnimation()->value().x << "x" << w->sizeAnimation()->value().y
           << " (WS: " << w->m_workspace->m_id << ")\n";
     }
 
@@ -632,10 +635,10 @@ static Hyprlang::CParseResult hyprviewGestureKeyword(const char *LHS,
   if (data[startDataIdx] == "toggle")
     resultFromGesture =
         g_pTrackpadGestures->addGesture(makeUnique<CViewGesture>(), fingerCount,
-                                        direction, modMask, deltaScale);
+                                        direction, modMask, deltaScale, false);
   else if (data[startDataIdx] == "unset")
     resultFromGesture = g_pTrackpadGestures->removeGesture(
-        fingerCount, direction, modMask, deltaScale);
+        fingerCount, direction, modMask, deltaScale, false);
   else {
     result.setError(
         std::format("Invalid gesture: {}", data[startDataIdx]).c_str());
@@ -655,7 +658,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
   const std::string HASH = __hyprland_api_get_hash();
 
-  if (HASH != GIT_COMMIT_HASH) {
+  if (!HASH.starts_with(GIT_COMMIT_HASH)) {
     failNotif(
         "Version mismatch (headers ver is not equal to running hyprland ver)");
     throw std::runtime_error("[hyprview] Version mismatch");
@@ -682,12 +685,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
                                                       (void *)hkAddDamageB);
 
   FNS = HyprlandAPI::findFunctionsByName(
-      PHANDLE, "_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+      PHANDLE, "_ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
   if (FNS.empty()) {
     failNotif(
-        "no fns for hook _ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+        "no fns for hook _ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
     throw std::runtime_error("[hyprview] No fns for hook "
-                             "_ZN8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
+                             "_ZN7Monitor8CMonitor9addDamageERKN9Hyprutils4Math4CBoxE");
   }
 
   g_pAddDamageHookA = HyprlandAPI::createFunctionHook(PHANDLE, FNS[0].address,
@@ -702,9 +705,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     throw std::runtime_error("[hyprview] Failed initializing hooks");
   }
 
-  static auto P = HyprlandAPI::registerCallbackDynamic(
-      PHANDLE, "preRender",
-      [](void *self, SCallbackInfo &info, std::any param) {
+  static auto P = Event::bus()->m_events.render.pre.listen(
+      [](PHLMONITOR) {
         for (auto &[monitor, instance] : g_pHyprViewInstances) {
           if (instance)
             instance->onPreRender();
@@ -726,9 +728,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
       });
 
   // Block workspace gestures when overview is active
-  static auto gestureBeginHook = HyprlandAPI::registerCallbackDynamic(
-      PHANDLE, "swipeBegin",
-      [](void *self, SCallbackInfo &info, std::any param) {
+  static auto gestureBeginHook = Event::bus()->m_events.gesture.swipe.begin.listen(
+      [](const IPointer::SSwipeBeginEvent&, SCallbackInfo &info) {
         // If any overview is active and it's not the hyprview gesture itself,
         // cancel the gesture
         if (!g_pHyprViewInstances.empty()) {
@@ -750,9 +751,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
       });
 
-  static auto gestureUpdateHook = HyprlandAPI::registerCallbackDynamic(
-      PHANDLE, "swipeUpdate",
-      [](void *self, SCallbackInfo &info, std::any param) {
+  static auto gestureUpdateHook = Event::bus()->m_events.gesture.swipe.update.listen(
+      [](const IPointer::SSwipeUpdateEvent&, SCallbackInfo &info) {
         // Block gesture updates when overview is active (unless it's the
         // hyprview gesture)
         if (!g_pHyprViewInstances.empty()) {
@@ -770,8 +770,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
       });
 
-  static auto gestureEndHook = HyprlandAPI::registerCallbackDynamic(
-      PHANDLE, "swipeEnd", [](void *self, SCallbackInfo &info, std::any param) {
+  static auto gestureEndHook = Event::bus()->m_events.gesture.swipe.end.listen(
+      [](const IPointer::SSwipeEndEvent&, SCallbackInfo &info) {
         // Block gesture end when overview is active (unless it's the hyprview
         // gesture)
         if (!g_pHyprViewInstances.empty()) {
@@ -841,5 +841,5 @@ APICALL EXPORT void PLUGIN_EXIT() {
   g_pHyprRenderer->m_renderPass.removeAllOfType("CHyprViewPassElement");
   g_unloading = true;
   g_pHyprViewInstances.clear();
-  g_pConfigManager->reload();
+  Config::mgr()->reload();
 }

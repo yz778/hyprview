@@ -6,13 +6,20 @@
 #include <unordered_set>
 #define private public
 #include <hyprland/src/Compositor.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/event/EventBus.hpp>
+#include <hyprland/src/devices/IPointer.hpp>
+#include <hyprland/src/devices/ITouch.hpp>
+#include <hyprland/src/pointer/cursor/CursorManager.hpp>
+#include <hyprland/src/pointer/PointerManager.hpp>
+using Event::SCallbackInfo;
+using Desktop::View::CWindow;
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/config/ConfigValue.hpp>
-#include <hyprland/src/debug/Log.hpp>
+#include "compat054.hpp"
 #include <hyprland/src/helpers/time/Time.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
-#include <hyprland/src/managers/animation/AnimationManager.hpp>
-#include <hyprland/src/managers/animation/DesktopAnimationManager.hpp>
+#include <hyprland/src/animation/AnimationManager.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #undef private
@@ -65,18 +72,18 @@ CHyprView::~CHyprView() {
   }
 
   // Always cleanup resources in destructor if they haven't been cleaned yet
-  if (!images.empty() || bgFramebuffer.m_size.x > 0) {
+  if (!images.empty() || (bgFramebuffer && bgFramebuffer->m_size.x > 0)) {
     Debug::log(LOG, "[hyprview] ~CHyprView(): Cleaning up remaining resources");
-    g_pHyprRenderer->makeEGLCurrent();
+    g_pHyprOpenGL->makeEGLCurrent();
     images.clear();
-    bgFramebuffer.release();
-    g_pInputManager->unsetCursorImage();
-    g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
+    if (bgFramebuffer)
+      bgFramebuffer->release();
+    g_pPointerManager->resetCursorImage();
   }
 }
 
 void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
-  g_pHyprRenderer->makeEGLCurrent();
+  g_pHyprOpenGL->makeEGLCurrent();
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = true;
 
@@ -103,52 +110,53 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     auto &window = windowsToRender[i];
 
     image.pWindow = window;
-    image.originalPos = window->m_realPosition->value();
-    image.originalSize = window->m_realSize->value();
+    image.originalPos = window->positionAnimation()->value();
+    image.originalSize = window->sizeAnimation()->value();
     image.originalWorkspace = originalWorkspaces[window];
 
     const auto RENDERSIZE =
-        (window->m_realSize->value() * pMonitor->m_scale).floor();
-    image.fb.alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y),
+        (window->sizeAnimation()->value() * pMonitor->m_scale).floor();
+    if (!image.fb)
+      image.fb = g_pHyprRenderer->createFB("hyprview:window");
+    image.fb->alloc(std::max(1.0, RENDERSIZE.x), std::max(1.0, RENDERSIZE.y),
                    pMonitor->m_output->state->state().drmFormat);
 
     CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
 
-    const auto REALPOS = window->m_realPosition->value();
+    const auto REALPOS = window->positionAnimation()->value();
 
     // Temporarily move window to monitor position for rendering
-    window->m_realPosition->setValue(pMonitor->m_position);
+    window->positionAnimation()->setValue(pMonitor->m_position);
 
-    g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage,
-                                 RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
+    g_pHyprRenderer->beginFullFakeRender(pMonitor.lock(), fakeDamage, image.fb);
 
     if (window && window->m_isMapped) {
-      g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(),
+      hyprview_compat::renderWindow(window, pMonitor.lock(), Time::steadyNow(),
                                     false, RENDER_PASS_MAIN, false, false);
     }
 
-    g_pHyprOpenGL->m_renderData.blockScreenShader = true;
+    g_pHyprRenderer->m_renderData.blockScreenShader = true;
     g_pHyprRenderer->endRender();
 
     // Restore original position
-    window->m_realPosition->setValue(REALPOS);
+    window->positionAnimation()->setValue(REALPOS);
   }
 
   // Setup scale animation
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
   g_pAnimationManager->createAnimation(
-      1.0f, scale, g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      1.0f, scale, Config::animationTree()->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
 
   // Keep size and pos for potential future use (or swipe gestures)
   g_pAnimationManager->createAnimation(
       fullMonitorSize, size,
-      g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      Config::animationTree()->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
   g_pAnimationManager->createAnimation(
       Vector2D{0, 0}, pos,
-      g_pConfigManager->getAnimationPropertyConfig("windowsMove"),
+      Config::animationTree()->getAnimationPropertyConfig("windowsMove"),
       AVARDAMAGE_NONE);
 
   scale->setUpdateCallback(damageMonitor);
@@ -181,7 +189,9 @@ void CHyprView::captureBackground() {
   const auto FORMAT = monitor->m_output->state->state().drmFormat;
 
   // Allocate the background framebuffer at full size
-  bgFramebuffer.alloc(MONITOR_SIZE.x, MONITOR_SIZE.y, FORMAT);
+  if (!bgFramebuffer)
+    bgFramebuffer = g_pHyprRenderer->createFB("hyprview:bg");
+  bgFramebuffer->alloc(MONITOR_SIZE.x, MONITOR_SIZE.y, FORMAT);
 
   // Get current workspace
   auto activeWorkspace = monitor->m_activeWorkspace;
@@ -197,14 +207,14 @@ void CHyprView::captureBackground() {
   CBox monitorBox = {monitor->m_position.x, monitor->m_position.y,
                      MONITOR_SIZE.x, MONITOR_SIZE.y};
 
-  for (auto &w : g_pCompositor->m_windows) {
+  for (auto &w : Desktop::windowState()->windows()) {
     if (!w->m_isMapped || w->isHidden())
       continue;
 
     // Check if window geometry intersects with this monitor
-    CBox windowBox = {w->m_realPosition->value().x,
-                      w->m_realPosition->value().y, w->m_realSize->value().x,
-                      w->m_realSize->value().y};
+    CBox windowBox = {w->positionAnimation()->value().x,
+                      w->positionAnimation()->value().y, w->sizeAnimation()->value().x,
+                      w->sizeAnimation()->value().y};
 
     // Check if window overlaps with this monitor using overlaps() method
     if (windowBox.overlaps(monitorBox)) {
@@ -216,11 +226,10 @@ void CHyprView::captureBackground() {
 
   // Capture the background with hidden windows
   CRegion fullRegion{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y};
-  g_pHyprRenderer->beginRender(monitor, fullRegion, RENDER_MODE_FULL_FAKE,
-                               nullptr, &bgFramebuffer);
+  g_pHyprRenderer->beginFullFakeRender(monitor, fullRegion, bgFramebuffer);
   // Render the workspace with hidden windows (showing just the
   // wallpaper/background)
-  g_pHyprRenderer->renderWorkspace(
+  hyprview_compat::renderWorkspace(
       monitor, activeWorkspace, std::chrono::steady_clock::now(),
       CBox{0, 0, (int)MONITOR_SIZE.x, (int)MONITOR_SIZE.y});
   g_pHyprRenderer->endRender();
@@ -246,7 +255,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   // This ensures the overview layer is created AFTER workspace migration
   blockOverviewRendering = true;
 
-  originalFocusedWindow = g_pCompositor->m_lastWindow;
+  originalFocusedWindow = Desktop::focusState()->window();
   userExplicitlySelected = false;
   currentHoveredIndex = -1;
   visualHoveredIndex = -1;
@@ -385,12 +394,12 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     return false;
   };
 
-  for (auto &w : g_pCompositor->m_windows) {
+  for (auto &w : Desktop::windowState()->windows()) {
     if (!w->m_isMapped || w->isHidden())
       continue;
 
     // Skip fullscreen windows to prevent problems and crashes
-    if (w->isFullscreen())
+    if (Fullscreen::controller()->isFullscreen(w))
       continue;
 
     if (!shouldIncludeWindow(w))
@@ -418,9 +427,9 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
         // Priority 3: Within same workspace, sort by X then Y (changed from Y
         // then X)
-        if (a->m_realPosition->value().x != b->m_realPosition->value().x)
-          return a->m_realPosition->value().x < b->m_realPosition->value().x;
-        return a->m_realPosition->value().y < b->m_realPosition->value().y;
+        if (a->positionAnimation()->value().x != b->positionAnimation()->value().x)
+          return a->positionAnimation()->value().x < b->positionAnimation()->value().x;
+        return a->positionAnimation()->value().y < b->positionAnimation()->value().y;
       });
 
   // Prepare input for pure placement algorithm
@@ -430,14 +439,14 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     auto &w = windowsToRender[i];
     windowInfos.push_back({
         i,                        // id
-        w->m_realSize->value().x, // width
-        w->m_realSize->value().y  // height
+        w->sizeAnimation()->value().x, // width
+        w->sizeAnimation()->value().y  // height
     });
   }
 
   // Prepare screen info (available area after reserved regions)
-  Vector2D reservedTopLeft = pMonitor->m_reservedTopLeft;
-  Vector2D reservedBottomRight = pMonitor->m_reservedBottomRight;
+  Vector2D reservedTopLeft = Vector2D(pMonitor->m_reservedArea.left(), pMonitor->m_reservedArea.top());
+  Vector2D reservedBottomRight = Vector2D(pMonitor->m_reservedArea.right(), pMonitor->m_reservedArea.bottom());
   Vector2D fullMonitorSize = pMonitor->m_pixelSize;
 
   // Calculate extra bottom margin needed for window names if enabled
@@ -492,12 +501,12 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
   g_pHyprRenderer->m_bBlockSurfaceFeedback = false;
 
-  g_pInputManager->setCursorImageUntilUnset("left_ptr");
+  g_pCursorManager->setCursorFromName("left_ptr");
 
   lastMousePosLocal =
       g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
 
-  auto onCursorMove = [this](void *self, SCallbackInfo &info, std::any param) {
+  auto onCursorMove = [this](SCallbackInfo &info) {
     if (closing)
       return;
 
@@ -527,8 +536,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     info.cancelled = true;
   };
 
-  auto onCursorSelect = [this](void *self, SCallbackInfo &info,
-                               std::any param) {
+  auto onCursorSelect = [this](SCallbackInfo &info) {
     if (closing)
       return;
 
@@ -558,7 +566,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
         auto window = images[tileIndex].pWindow.lock();
         if (window && window->m_isMapped) {
           // Focus the window first
-          g_pCompositor->focusWindow(window);
+          Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_KEYBIND);
 
           // Calculate mouse position relative to tile
           const CBox &tileBox = images[tileIndex].box;
@@ -566,7 +574,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
                                      localMousePos.y - tileBox.y};
 
           // Calculate scale factor from tile to real window
-          Vector2D realWindowSize = window->m_realSize->value();
+          Vector2D realWindowSize = window->sizeAnimation()->value();
           Vector2D scaleFactors = {realWindowSize.x / tileBox.width,
                                    realWindowSize.y / tileBox.height};
 
@@ -575,7 +583,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
                                    mousePosInTile.y * scaleFactors.y};
 
           // Warp cursor to projected position on real window
-          Vector2D realWindowPos = window->m_realPosition->value();
+          Vector2D realWindowPos = window->positionAnimation()->value();
           Vector2D targetGlobalPos = realWindowPos + projectedPos;
 
           // Use InputManager to move mouse to projected position
@@ -599,7 +607,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     }
   };
 
-  auto onMouseAxis = [this](void *self, SCallbackInfo &info, std::any param) {
+  auto onMouseAxis = [this](SCallbackInfo &info) {
     if (closing)
       return;
 
@@ -628,7 +636,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
         auto window = images[tileIndex].pWindow.lock();
         if (window && window->m_isMapped) {
           // Make sure this window is focused so scroll events go to it
-          g_pCompositor->focusWindow(window);
+          Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_KEYBIND);
           // Don't cancel - let scroll event pass through to the focused window
           return;
         }
@@ -639,12 +647,13 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // scroll The focused window from hover will receive it
   };
 
-  mouseMoveHook = g_pHookSystem->hookDynamic("mouseMove", onCursorMove);
-  touchMoveHook = g_pHookSystem->hookDynamic("touchMove", onCursorMove);
-
-  mouseButtonHook = g_pHookSystem->hookDynamic("mouseButton", onCursorSelect);
-  mouseAxisHook = g_pHookSystem->hookDynamic("mouseAxis", onMouseAxis);
-  touchDownHook = g_pHookSystem->hookDynamic("touchDown", onCursorSelect);
+  // 0.54: string-named hookSystem events became typed EventBus signals.
+  auto& EV = Event::bus()->m_events;
+  mouseMoveHook   = EV.input.mouse.move.listen([onCursorMove](const Vector2D&, SCallbackInfo& info) { onCursorMove(info); });
+  touchMoveHook   = EV.input.touch.motion.listen([onCursorMove](const ITouch::SMotionEvent&, SCallbackInfo& info) { onCursorMove(info); });
+  mouseButtonHook = EV.input.mouse.button.listen([onCursorSelect](const IPointer::SButtonEvent&, SCallbackInfo& info) { onCursorSelect(info); });
+  mouseAxisHook   = EV.input.mouse.axis.listen([onMouseAxis](const IPointer::SAxisEvent&, SCallbackInfo& info) { onMouseAxis(info); });
+  touchDownHook   = EV.input.touch.down.listen([onCursorSelect](const ITouch::SDownEvent&, SCallbackInfo& info) { onCursorSelect(info); });
 
   // NOW unblock rendering - workspace migration is complete
   // The overview layer will be created on the next render pass
@@ -698,7 +707,7 @@ void CHyprView::selectHoveredWindow() {
 void CHyprView::redrawID(int id, bool forcelowres) {
   blockOverviewRendering = true;
 
-  g_pHyprRenderer->makeEGLCurrent();
+  g_pHyprOpenGL->makeEGLCurrent();
 
   if (id >= (int)images.size())
     id = images.size() - 1;
@@ -713,35 +722,35 @@ void CHyprView::redrawID(int id, bool forcelowres) {
   }
 
   const auto RENDERSIZE =
-      (window->m_realSize->value() * pMonitor->m_scale).floor();
+      (window->sizeAnimation()->value() * pMonitor->m_scale).floor();
   if (RENDERSIZE.x < 1 || RENDERSIZE.y < 1) {
     blockOverviewRendering = false;
     return;
   }
 
-  if (image.fb.m_size.x != RENDERSIZE.x || image.fb.m_size.y != RENDERSIZE.y) {
-    image.fb.release();
-    image.fb.alloc(RENDERSIZE.x, RENDERSIZE.y,
+  if (!image.fb || image.fb->m_size.x != RENDERSIZE.x ||
+      image.fb->m_size.y != RENDERSIZE.y) {
+    image.fb->release();
+    image.fb->alloc(RENDERSIZE.x, RENDERSIZE.y,
                    pMonitor->m_output->state->state().drmFormat);
   }
 
   CRegion fakeDamage{0, 0, INT16_MAX, INT16_MAX};
 
-  const auto REALPOS = window->m_realPosition->value();
-  window->m_realPosition->setValue(pMonitor->m_position);
+  const auto REALPOS = window->positionAnimation()->value();
+  window->positionAnimation()->setValue(pMonitor->m_position);
 
-  g_pHyprRenderer->beginRender(pMonitor.lock(), fakeDamage,
-                               RENDER_MODE_FULL_FAKE, nullptr, &image.fb);
+  g_pHyprRenderer->beginFullFakeRender(pMonitor.lock(), fakeDamage, image.fb);
 
   if (window->m_isMapped) {
-    g_pHyprRenderer->renderWindow(window, pMonitor.lock(), Time::steadyNow(),
+    hyprview_compat::renderWindow(window, pMonitor.lock(), Time::steadyNow(),
                                   false, RENDER_PASS_MAIN, false, false);
   }
 
-  g_pHyprOpenGL->m_renderData.blockScreenShader = true;
+  g_pHyprRenderer->m_renderData.blockScreenShader = true;
   g_pHyprRenderer->endRender();
 
-  window->m_realPosition->setValue(REALPOS);
+  window->positionAnimation()->setValue(REALPOS);
 
   blockOverviewRendering = false;
 }
@@ -773,7 +782,7 @@ void CHyprView::onDamageReported() {
     blockDamageReporting = false;
   }
 
-  g_pCompositor->scheduleFrameForMonitor(pMonitor.lock());
+  pMonitor->scheduleFrame();
 }
 
 void CHyprView::close() {
@@ -815,8 +824,8 @@ void CHyprView::close() {
 
   // STEP 3: Focus the selected window to trigger all lifecycle events
   if (userExplicitlySelected && selectedWindow) {
-    g_pCompositor->focusWindow(selectedWindow);
-    g_pKeybindManager->alterZOrder("top");
+    Desktop::focusState()->fullWindowFocus(selectedWindow, Desktop::FOCUS_REASON_KEYBIND);
+    Config::Actions::alterZOrder("top");
   }
 }
 
@@ -831,9 +840,9 @@ void CHyprView::onPreRender() {
     Debug::log(LOG, "[hyprview] onPreRender(): Closing animation complete, cleaning up");
     readyForCleanup = true;
     images.clear();
-    bgFramebuffer.release();
-    g_pInputManager->unsetCursorImage();
-    g_pHyprOpenGL->markBlurDirtyForMonitor(pMonitor.lock());
+    if (bgFramebuffer)
+      bgFramebuffer->release();
+    g_pPointerManager->resetCursorImage();
   }
 }
 
@@ -849,12 +858,13 @@ void CHyprView::fullRender() {
   const float currentAlpha = 1.0f; // Keep alpha fixed, removing all fade animations
 
   // Render the captured background instead of a solid color
-  if (bgCaptured && bgFramebuffer.m_size.x > 0 && bgFramebuffer.m_size.y > 0) {
+  if (bgCaptured && bgFramebuffer && bgFramebuffer->m_size.x > 0 &&
+      bgFramebuffer->m_size.y > 0) {
     Vector2D fullMonitorSize = pMonitor->m_pixelSize;
     CBox monitorBox = {0, 0, fullMonitorSize.x, fullMonitorSize.y};
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-    g_pHyprOpenGL->renderTextureInternal(
-        bgFramebuffer.getTexture(), monitorBox,
+    g_pHyprOpenGL->renderTexture(
+        bgFramebuffer->getTexture(), monitorBox,
         {.damage = &damage, .a = 1.0, .round = 0});
 
     // Add a dim overlay that fades in with the overview
@@ -868,7 +878,7 @@ void CHyprView::fullRender() {
     std::string emptyMessage = "Overview (no windows)";
     int fontSize = 32;
 
-    auto textTexture = g_pHyprOpenGL->renderText(
+    auto textTexture = g_pHyprRenderer->renderText(
         emptyMessage, CHyprColor(1.0, 1.0, 1.0, currentAlpha), fontSize, false,
         "sans-serif");
 
@@ -891,7 +901,7 @@ void CHyprView::fullRender() {
 
       // Render the text
       CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-      g_pHyprOpenGL->renderTextureInternal(
+      g_pHyprOpenGL->renderTexture(
           textTexture, textBox,
           {.damage = &damage, .a = currentAlpha, .round = 0});
     }
@@ -899,19 +909,21 @@ void CHyprView::fullRender() {
     return;
   }
 
-  const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
-  const auto PLASTWORKSPACE = g_pCompositor->m_lastWindow.lock();
+  const auto PLASTWINDOW = Desktop::focusState()->window();
+  // upstream assigned the focused *window* here, so the workspace comparison
+  // below never matched and the z-order map stayed empty. Use its workspace.
+  const auto PLASTWORKSPACE = PLASTWINDOW ? PLASTWINDOW->m_workspace : PHLWORKSPACE{};
 
   // Floating windows are rendered on top of tiled windows.
   // Z-order of windows from other workspaces does not matter.
   std::unordered_map<CWindow *, size_t> zOrderMap;
-  zOrderMap.reserve(g_pCompositor->m_windows.size());
+  zOrderMap.reserve(Desktop::windowState()->windows().size());
   size_t zOrder = 0;
-  for (auto &window : g_pCompositor->m_windows) {
+  for (auto &window : Desktop::windowState()->windows()) {
     if (window->m_workspace == PLASTWORKSPACE && !window->m_isFloating)
       zOrderMap.try_emplace(window.get(), zOrder++);
   }
-  for (auto &window : g_pCompositor->m_windows) {
+  for (auto &window : Desktop::windowState()->windows()) {
     if (window->m_workspace == PLASTWORKSPACE && window->m_isFloating)
       zOrderMap.try_emplace(window.get(), zOrder++);
   }
@@ -934,7 +946,7 @@ void CHyprView::fullRender() {
   });
 
   for (auto i : renderOrder) {
-    const Vector2D &textureSize = images[i].fb.m_size;
+    const Vector2D &textureSize = images[i].fb->m_size;
 
     if (textureSize.x < 1 || textureSize.y < 1)
       continue;
@@ -992,8 +1004,8 @@ void CHyprView::fullRender() {
     g_pHyprOpenGL->renderRect(borderBox, fadedBorderColor, data);
 
     CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-    g_pHyprOpenGL->renderTextureInternal(
-        images[i].fb.getTexture(), windowBox,
+    g_pHyprOpenGL->renderTexture(
+        images[i].fb->getTexture(), windowBox,
         {.damage = &damage, .a = currentAlpha, .round = BORDER_RADIUS});
 
     // Render workspace number indicator (if enabled and window names are disabled)
@@ -1020,7 +1032,7 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox,
   // Use border color based on whether window is active
   const auto &INDICATOR_COLOR =
       ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
-  auto textTexture = g_pHyprOpenGL->renderText(workspaceText, INDICATOR_COLOR,
+  auto textTexture = g_pHyprRenderer->renderText(workspaceText, INDICATOR_COLOR,
                                                WORKSPACE_INDICATOR_FONT_SIZE,
                                                false, "sans-serif");
 
@@ -1062,7 +1074,7 @@ void CHyprView::renderWorkspaceIndicator(size_t i, const CBox &borderBox,
         bgData);
 
     // Render the text on top
-    g_pHyprOpenGL->renderTextureInternal(
+    g_pHyprOpenGL->renderTexture(
         textTexture, textBox, {.damage = &damage, .a = 1.0, .round = 0});
   }
 }
@@ -1078,7 +1090,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   std::string windowText = window->m_initialClass + " • " + window->m_title;
 
   // Determine workspace text color based on whether window is active
-  const auto PLASTWINDOW = g_pCompositor->m_lastWindow.lock();
+  const auto PLASTWINDOW = Desktop::focusState()->window();
   const bool ISACTIVE = window == PLASTWINDOW;
   const auto &WORKSPACE_COLOR = ISACTIVE ? ACTIVE_BORDER_COLOR : INACTIVE_BORDER_COLOR;
 
@@ -1091,7 +1103,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   SP<CTexture> workspaceTexture;
   double workspaceWidth = 0.0;
   if (!workspaceText.empty()) {
-    workspaceTexture = g_pHyprOpenGL->renderText(
+    workspaceTexture = g_pHyprRenderer->renderText(
         workspaceText, WORKSPACE_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
     if (workspaceTexture) {
       workspaceWidth = workspaceTexture->m_size.x * 0.8;
@@ -1105,7 +1117,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   // Helper function to truncate string with smart ellipsis
   auto truncateWithEllipsis = [&](const std::string &text, double maxWidth) -> std::string {
     // First check if truncation is needed
-    auto fullTexture = g_pHyprOpenGL->renderText(
+    auto fullTexture = g_pHyprRenderer->renderText(
         text, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
     if (!fullTexture)
       return text;
@@ -1117,7 +1129,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
     // Calculate how many characters we can fit
     // Use binary search approach with ellipsis " ... "
     std::string ellipsis = " ... ";
-    auto ellipsisTexture = g_pHyprOpenGL->renderText(
+    auto ellipsisTexture = g_pHyprRenderer->renderText(
         ellipsis, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
     double ellipsisWidth = ellipsisTexture ? ellipsisTexture->m_size.x * 0.8 : 30.0;
 
@@ -1139,7 +1151,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
       std::string truncated = text.substr(0, startChars) + ellipsis +
                               text.substr(textLen - endChars);
 
-      auto testTexture = g_pHyprOpenGL->renderText(
+      auto testTexture = g_pHyprRenderer->renderText(
           truncated, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
       if (!testTexture)
         break;
@@ -1174,7 +1186,7 @@ void CHyprView::renderWindowName(const SWindowImage &image,
   }
 
   // Render window text
-  auto windowTexture = g_pHyprOpenGL->renderText(
+  auto windowTexture = g_pHyprRenderer->renderText(
       windowText, WINDOW_TEXT_COLOR, WINDOW_NAME_FONT_SIZE, false, "sans-serif");
 
   if (windowTexture) {
@@ -1203,13 +1215,13 @@ void CHyprView::renderWindowName(const SWindowImage &image,
     // Render workspace text first (if present)
     if (workspaceTexture) {
       CBox workspaceBox = {startX, textY, workspaceWidth, textHeight};
-      g_pHyprOpenGL->renderTextureInternal(
+      g_pHyprOpenGL->renderTexture(
           workspaceTexture, workspaceBox, {.damage = &fakeDamage, .a = 1.0, .round = 0});
     }
 
     // Render window text after workspace text
     CBox windowBox = {startX + workspaceWidth, textY, windowWidth, textHeight};
-    g_pHyprOpenGL->renderTextureInternal(
+    g_pHyprOpenGL->renderTexture(
         windowTexture, windowBox, {.damage = &fakeDamage, .a = 1.0, .round = 0});
   }
 }
@@ -1300,8 +1312,8 @@ void CHyprView::updateHoverState(int newIndex) {
                  window->m_title, newIndex);
 
       // Focus the window and ensure it becomes the compositor's last focused window
-      g_pCompositor->focusWindow(window);
-      g_pCompositor->m_lastWindow = window;
+      Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_KEYBIND);
+      // m_lastWindow assignment handled by fullWindowFocus above (0.54)
 
       lastHoveredWindow = window;
     }
