@@ -4,8 +4,10 @@
 #include "globals.hpp"
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/helpers/AnimatedVariable.hpp>
-#include <hyprland/src/managers/HookSystemManager.hpp>
+#include <hyprland/src/plugins/HookSystem.hpp>
+#include "compat056.hpp"
 #include <hyprland/src/render/Framebuffer.hpp>
+#include <hyprland/src/helpers/signal/Signal.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -25,7 +27,6 @@ enum class EWindowCollectionMode {
   ALL_WITH_SPECIAL // All workspaces + special workspace
 };
 
-class CMonitor;
 class CHyprView;
 
 // Forward declare friend functions
@@ -82,7 +83,7 @@ private:
   void captureBackground();
   void setupWindowImages(std::vector<PHLWINDOW> &windowsToRender);
 
-  CFramebuffer bgFramebuffer; // Store the captured background
+  SP<Render::IFramebuffer> bgFramebuffer; // Store the captured background
   bool bgCaptured = false;    // Flag to track if background is captured
 
   int MARGIN = 15; // Margin around each grid tile
@@ -108,7 +109,7 @@ private:
   bool damageDirty = false;
 
   struct SWindowImage {
-    CFramebuffer fb;
+    SP<Render::IFramebuffer> fb;
     PHLWINDOWREF pWindow;
     CBox box;
     Vector2D originalPos;
@@ -139,11 +140,11 @@ private:
   PHLANIMVAR<Vector2D> pos;
   PHLANIMVAR<float> scale; // Scale animation for overview
 
-  SP<HOOK_CALLBACK_FN> mouseMoveHook;
-  SP<HOOK_CALLBACK_FN> mouseButtonHook;
-  SP<HOOK_CALLBACK_FN> mouseAxisHook;
-  SP<HOOK_CALLBACK_FN> touchMoveHook;
-  SP<HOOK_CALLBACK_FN> touchDownHook;
+  CHyprSignalListener mouseMoveHook;
+  CHyprSignalListener mouseButtonHook;
+  CHyprSignalListener mouseAxisHook;
+  CHyprSignalListener touchMoveHook;
+  CHyprSignalListener touchDownHook;
 
   bool swipeWasCommenced = false;
 

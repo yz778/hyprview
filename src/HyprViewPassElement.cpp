@@ -7,7 +7,7 @@ CHyprViewPassElement::CHyprViewPassElement(CHyprView *instance_)
   ;
 }
 
-void CHyprViewPassElement::draw(const CRegion &damage) {
+std::vector<UP<IPassElement>> CHyprViewPassElement::draw() {
 
   // Check if the instance still exists in the global map before rendering
   // This prevents crashes when the instance has been deleted
@@ -27,6 +27,8 @@ void CHyprViewPassElement::draw(const CRegion &damage) {
   } else {
     instance->fullRender();
   }
+
+  return {};
 }
 
 bool CHyprViewPassElement::needsLiveBlur() { return false; }
