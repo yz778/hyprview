@@ -72,6 +72,7 @@ Located in `main.cpp`, registered via `HyprlandAPI::addConfigValueV2`:
 - `plugin:hyprview:window_name_bg_opacity`
 - `plugin:hyprview:window_text_color`
 - `plugin:hyprview:gesture_distance`
+- `plugin:hyprview:fullscreen_on_select` (default 0)
 
 ### Framebuffer Management
 - Individual framebuffers per window stored in `SWindowImage::fb`

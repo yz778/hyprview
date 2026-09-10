@@ -7,6 +7,8 @@ Python 3, Hyprland/hyprctl, foot, and grim, plus a running Wayland compositor.
 make -C src
 python3 tests/nested.py build/hyprview.so --scale 1
 python3 tests/nested.py build/hyprview.so --scale 2
+python3 tests/nested.py build/hyprview.so --scale 1 --fullscreen --selection default
+python3 tests/nested.py build/hyprview.so --scale 2 --fullscreen --selection fullscreen
 ```
 
 Use `--parent-display wayland-N` if the terminal's `WAYLAND_DISPLAY` is stale.
@@ -19,3 +21,15 @@ Checks cover two windows on separate workspaces, three open/close cycles, exact
 workspace/fullscreen-state restoration, config reload, and unloading while open.
 This exercises Lua callbacks directly; physical touchpad gestures still require
 a manual check. It does not cover older Hyprland versions or rotated outputs.
+
+`--fullscreen` adds a fullscreen window and checks that the overview temporarily
+clears its internal fullscreen mode, then restores both internal and client modes.
+`--selection` additionally requires a C compiler, pkg-config, wayland-client
+development files, and wayland-scanner. It builds a virtual pointer helper and
+checks empty-background clicks, selection across workspaces, the default sticky
+behavior, and optional fullscreen selection (including an already-fullscreen
+selection). The helper connects only to the test compositor's socket.
+
+`virtual-pointer.xml` comes from swaywm/wlr-protocols, at
+`unstable/wlr-virtual-pointer-unstable-v1.xml`; its upstream license notice is
+retained in the file.

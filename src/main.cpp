@@ -844,6 +844,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_name_bg_opacity");
   if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:window_text_color", "Hyprview option", 0xFFFFFFFF)))
     throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_text_color");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE,
+          makeShared<Config::Values::CIntValue>("plugin:hyprview:fullscreen_on_select",
+                                              "Fullscreen an explicitly selected window", 0)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:fullscreen_on_select");
   HyprlandAPI::reloadConfig();
 
   return {"hyprview", "Window overview with multiple placement algorithms",

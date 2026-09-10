@@ -20,6 +20,8 @@ https://github.com/user-attachments/assets/c0553bfe-6357-48e5-a4d0-50068096d800
 
 ## Features
 
+* **Fullscreen Windows:** Include fullscreen windows and restore their original fullscreen modes and workspaces when dismissing the overview.
+* **Optional Fullscreen Selection:** Enable `fullscreen_on_select` to make an explicitly selected window fullscreen.
 * **Workspace Overview:** See all your open windows on the current workspace at a glance.
 * **Multi-Workspace Modes:** View windows from the current workspace, all workspaces on the monitor, or include special (scratchpad) workspaces.
 * **Workspace Indicator:** Each window tile shows its workspace ID (displayed as "wsid:N") in a configurable position with customizable size and styling. The indicator color automatically matches the window's border color (active or inactive) for easy navigation across multiple workspaces.
@@ -76,6 +78,28 @@ close only that monitor. Lua gestures remain enabled while the overview is open,
 so a downward callback can close it. Avoid assigning competing workspace gestures
 to the same fingers/direction. Legacy `hyprview-gesture` remains available in
 `hyprland.conf`.
+
+### Fullscreen selection
+
+By default, selecting a preview retains its previous fullscreen state. The
+existing sticky `on` mode also retains its behavior of focusing a preview without
+closing. To make a left-click or explicit selection close the overview and make
+the chosen window fullscreen, opt in:
+
+```lua
+-- Apply after the plugin is loaded (or in the config reload following its load).
+hl.config({ plugin = { hyprview = { fullscreen_on_select = 1 } } })
+```
+
+For legacy configuration:
+
+```ini
+plugin:hyprview:fullscreen_on_select = 1
+```
+
+The default is `0`. A downward gesture or `off` without a selection restores the
+original window states regardless of this setting. With the option enabled,
+clicking a preview also exits sticky `on` mode. Empty background clicks are ignored.
 
 ### Keybinds
 

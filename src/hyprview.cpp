@@ -1,3 +1,4 @@
+#include <linux/input-event-codes.h>
 #include "hyprview.hpp"
 #include <algorithm>
 #include <any>
@@ -71,6 +72,12 @@ CHyprView::~CHyprView() {
         window->moveToWorkspace(image.originalWorkspace);
       }
     }
+    for (const auto &image : images) {
+      auto window = image.pWindow.lock();
+      if (window && window->m_isMapped && image.originalFullscreen.internal != Fullscreen::FSMODE_NONE)
+        Fullscreen::controller()->setFullscreenMode(window, image.originalFullscreen.internal,
+                                                    image.originalFullscreen.client);
+    }
   }
 
   // Always cleanup resources in destructor if they haven't been cleaned yet
@@ -91,8 +98,17 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
 
   // Save original workspaces BEFORE moving
   std::unordered_map<PHLWINDOW, PHLWORKSPACE> originalWorkspaces;
+  std::unordered_map<PHLWINDOW, Fullscreen::SFullscreenMode> originalFullscreen;
   for (auto &window : windowsToRender) {
     originalWorkspaces[window] = window->m_workspace;
+    originalFullscreen[window] = Fullscreen::controller()->getFullscreenModes(window);
+  }
+
+  // The overview owns rendering temporarily. Remove covering fullscreen state
+  // before combining windows from different workspaces, keeping client state.
+  for (auto &window : windowsToRender) {
+    if (originalFullscreen[window].internal != Fullscreen::FSMODE_NONE)
+      Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
   }
 
   // Move windows to active workspace so they have valid surfaces for rendering
@@ -115,6 +131,7 @@ void CHyprView::setupWindowImages(std::vector<PHLWINDOW> &windowsToRender) {
     image.originalPos = window->positionAnimation()->value();
     image.originalSize = window->sizeAnimation()->value();
     image.originalWorkspace = originalWorkspaces[window];
+    image.originalFullscreen = originalFullscreen[window];
 
     const auto RENDERSIZE =
         (window->sizeAnimation()->value() * pMonitor->m_scale).floor();
@@ -348,10 +365,6 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     if (!w->m_isMapped || w->isHidden())
       continue;
 
-    // Skip fullscreen windows to prevent problems and crashes
-    if (Fullscreen::controller()->isFullscreen(w))
-      continue;
-
     if (!shouldIncludeWindow(w))
       continue;
 
@@ -463,7 +476,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is actually on this monitor BEFORE cancelling
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -493,7 +506,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is on this monitor BEFORE cancelling
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -505,8 +518,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return; // Mouse is on a different monitor - don't cancel event
     }
 
+    static const CConfigValue<Config::INTEGER> PFULLSCREENONSELECT(
+        "plugin:hyprview:fullscreen_on_select");
     // If explicitly turned on, project click to real window
-    if (stickyOn) {
+    if (stickyOn && !*PFULLSCREENONSELECT) {
       info.cancelled = true;
 
       Vector2D localMousePos = globalMousePos - monitorPos;
@@ -520,8 +535,8 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
 
           // Calculate mouse position relative to tile
           const CBox &tileBox = images[tileIndex].box;
-          Vector2D mousePosInTile = {localMousePos.x - tileBox.x,
-                                     localMousePos.y - tileBox.y};
+          Vector2D mousePosInTile = {localMousePos.x * pMonitor->m_scale - tileBox.x,
+                                     localMousePos.y * pMonitor->m_scale - tileBox.y};
 
           // Calculate scale factor from tile to real window
           Vector2D realWindowSize = window->sizeAnimation()->value();
@@ -544,17 +559,24 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
       return;
     }
 
-    // Normal mode: cancel click, select window, and close ALL overviews except
-    // forced ones
     info.cancelled = true;
-    selectHoveredWindow();
+    lastMousePosLocal = globalMousePos - monitorPos;
+    const int tileIndex = getWindowIndexFromMousePos(lastMousePosLocal);
+    if (tileIndex < 0 || tileIndex >= (int)images.size())
+      return;
+    auto selectedWindow = images[tileIndex].pWindow.lock();
+    if (!selectedWindow || !selectedWindow->m_isMapped)
+      return;
 
-    // Close all overview instances except those with stickyOn=true
+    currentHoveredIndex = tileIndex;
+    selectHoveredWindow();
+    // Restore other monitors first, then focus this selection.
     for (auto &[monitor, instance] : g_pHyprViewInstances) {
-      if (instance && !instance->stickyOn) {
+      if (instance && instance.get() != this &&
+          (!instance->stickyOn || *PFULLSCREENONSELECT))
         instance->close();
-      }
     }
+    close();
   };
 
   auto onMouseAxis = [this](SCallbackInfo &info) {
@@ -564,7 +586,7 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
     // Check if mouse is on this monitor
     Vector2D globalMousePos = g_pInputManager->getMouseCoordsInternal();
     Vector2D monitorPos = pMonitor->m_position;
-    Vector2D fullMonitorSize = pMonitor->m_pixelSize;
+    Vector2D fullMonitorSize = pMonitor->m_pixelSize / pMonitor->m_scale;
 
     bool mouseOnThisMonitor =
         (globalMousePos.x >= monitorPos.x &&
@@ -601,7 +623,10 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   auto& EV = Event::bus()->m_events;
   mouseMoveHook   = EV.input.mouse.move.listen([onCursorMove](const Vector2D&, SCallbackInfo& info) { onCursorMove(info); });
   touchMoveHook   = EV.input.touch.motion.listen([onCursorMove](const ITouch::SMotionEvent&, SCallbackInfo& info) { onCursorMove(info); });
-  mouseButtonHook = EV.input.mouse.button.listen([onCursorSelect](const IPointer::SButtonEvent&, SCallbackInfo& info) { onCursorSelect(info); });
+  mouseButtonHook = EV.input.mouse.button.listen([onCursorSelect](const IPointer::SButtonEvent& event, SCallbackInfo& info) {
+    if (event.button == BTN_LEFT && event.state == WL_POINTER_BUTTON_STATE_PRESSED)
+      onCursorSelect(info);
+  });
   mouseAxisHook   = EV.input.mouse.axis.listen([onMouseAxis](const IPointer::SAxisEvent&, SCallbackInfo& info) { onMouseAxis(info); });
   touchDownHook   = EV.input.touch.down.listen([onCursorSelect](const ITouch::SDownEvent&, SCallbackInfo& info) { onCursorSelect(info); });
 
@@ -768,6 +793,14 @@ void CHyprView::close() {
     }
   }
 
+  // Restore fullscreen only after all windows are back on their workspaces.
+  for (const auto &image : images) {
+    auto window = image.pWindow.lock();
+    if (window && window->m_isMapped && image.originalFullscreen.internal != Fullscreen::FSMODE_NONE)
+      Fullscreen::controller()->setFullscreenMode(window, image.originalFullscreen.internal,
+                                                  image.originalFullscreen.client);
+  }
+
   // STEP 2: Start closing animationi - animate scale back to 0
   Debug::log(LOG, "[hyprview] close(): Start closing animation");
   *scale = 0.0f;
@@ -776,6 +809,11 @@ void CHyprView::close() {
   if (userExplicitlySelected && selectedWindow) {
     Desktop::focusState()->fullWindowFocus(selectedWindow, Desktop::FOCUS_REASON_KEYBIND);
     Config::Actions::alterZOrder("top");
+    static const CConfigValue<Config::INTEGER> PFULLSCREENONSELECT(
+        "plugin:hyprview:fullscreen_on_select");
+    if (*PFULLSCREENONSELECT)
+      Fullscreen::controller()->setFullscreenMode(selectedWindow, Fullscreen::FSMODE_FULLSCREEN,
+                                                  Fullscreen::FSMODE_FULLSCREEN);
   }
 }
 
@@ -1213,7 +1251,8 @@ void CHyprView::onSwipeEnd() {
   m_isSwiping = false;
 }
 
-int CHyprView::getWindowIndexFromMousePos(const Vector2D &mousePos) {
+int CHyprView::getWindowIndexFromMousePos(const Vector2D &logicalMousePos) {
+  const Vector2D mousePos = logicalMousePos * pMonitor->m_scale;
   if (images.empty())
     return -1;
 
