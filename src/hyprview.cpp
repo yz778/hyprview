@@ -29,10 +29,12 @@ using Desktop::View::CWindow;
 // Helper to find the CHyprView instance for a given animation variable
 CHyprView *findInstanceForAnimation(
     WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
+  if (!thisptr)
+    return nullptr;
   for (auto &[monitor, instance] : g_pHyprViewInstances) {
-    if (instance && (instance->size.get() == thisptr.lock().get() ||
-                     instance->pos.get() == thisptr.lock().get() ||
-                     instance->scale.get() == thisptr.lock().get())) {
+    if (instance && (instance->size.get() == thisptr.get() ||
+                     instance->pos.get() == thisptr.get() ||
+                     instance->scale.get() == thisptr.get())) {
       return instance.get();
     }
   }
@@ -264,91 +266,39 @@ CHyprView::CHyprView(PHLMONITOR pMonitor_, PHLWORKSPACE startedOn_, bool swipe_,
   Debug::log(LOG, "[hyprview] CHyprView(): Saved original focused window: {}",
              (void *)origWindow.get());
 
-  static auto *const *PMARGIN =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:margin")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PMARGIN("plugin:hyprview:margin");
 
-  MARGIN = **PMARGIN;
+  MARGIN = *PMARGIN;
 
-  static auto *const *PACTIVEBORDERCOL =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:active_border_color")
-          ->getDataStaticPtr();
-  static auto *const *PINACTIVEBORDERCOL =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:inactive_border_color")
-          ->getDataStaticPtr();
-  static auto *const *PBORDERWIDTH =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:border_width")
-          ->getDataStaticPtr();
-  static auto *const *PBORDERRADIUS =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:border_radius")
-          ->getDataStaticPtr();
-  static auto *const *PBGDIM =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:bg_dim")
-          ->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORENABLED =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_enabled")
-          ->getDataStaticPtr();
-  static auto *const *PWORKSPACEINDICATORFONTSIZE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_font_size")
-          ->getDataStaticPtr();
-  static auto PWORKSPACEINDICATORPOSITION_VAL = HyprlandAPI::getConfigValue(
-      PHANDLE, "plugin:hyprview:workspace_indicator_position");
-  static auto *const *PWORKSPACEINDICATORBGOPACITY =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:workspace_indicator_bg_opacity")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEENABLED =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_enabled")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEFONTSIZE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_font_size")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWNAMEBGOPACITY =
-      (Hyprlang::FLOAT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_name_bg_opacity")
-          ->getDataStaticPtr();
-  static auto *const *PWINDOWTEXTCOLOR =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:window_text_color")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PACTIVEBORDERCOL("plugin:hyprview:active_border_color");
+  static const CConfigValue<Config::INTEGER> PINACTIVEBORDERCOL("plugin:hyprview:inactive_border_color");
+  static const CConfigValue<Config::INTEGER> PBORDERWIDTH("plugin:hyprview:border_width");
+  static const CConfigValue<Config::INTEGER> PBORDERRADIUS("plugin:hyprview:border_radius");
+  static const CConfigValue<Config::FLOAT> PBGDIM("plugin:hyprview:bg_dim");
+  static const CConfigValue<Config::INTEGER> PWORKSPACEINDICATORENABLED("plugin:hyprview:workspace_indicator_enabled");
+  static const CConfigValue<Config::INTEGER> PWORKSPACEINDICATORFONTSIZE("plugin:hyprview:workspace_indicator_font_size");
+  static const CConfigValue<Config::STRING> PWORKSPACEINDICATORPOSITION_VAL("plugin:hyprview:workspace_indicator_position");
+  static const CConfigValue<Config::FLOAT> PWORKSPACEINDICATORBGOPACITY("plugin:hyprview:workspace_indicator_bg_opacity");
+  static const CConfigValue<Config::INTEGER> PWINDOWNAMEENABLED("plugin:hyprview:window_name_enabled");
+  static const CConfigValue<Config::INTEGER> PWINDOWNAMEFONTSIZE("plugin:hyprview:window_name_font_size");
+  static const CConfigValue<Config::FLOAT> PWINDOWNAMEBGOPACITY("plugin:hyprview:window_name_bg_opacity");
+  static const CConfigValue<Config::INTEGER> PWINDOWTEXTCOLOR("plugin:hyprview:window_text_color");
 
-  ACTIVE_BORDER_COLOR = **PACTIVEBORDERCOL;
-  INACTIVE_BORDER_COLOR = **PINACTIVEBORDERCOL;
-  BORDER_WIDTH = **PBORDERWIDTH;
-  BORDER_RADIUS = **PBORDERRADIUS;
-  BG_DIM = **PBGDIM;
-  WORKSPACE_INDICATOR_ENABLED = **PWORKSPACEINDICATORENABLED != 0;
-  WORKSPACE_INDICATOR_FONT_SIZE = **PWORKSPACEINDICATORFONTSIZE;
-  WORKSPACE_INDICATOR_BG_OPACITY = **PWORKSPACEINDICATORBGOPACITY;
+  ACTIVE_BORDER_COLOR = *PACTIVEBORDERCOL;
+  INACTIVE_BORDER_COLOR = *PINACTIVEBORDERCOL;
+  BORDER_WIDTH = *PBORDERWIDTH;
+  BORDER_RADIUS = *PBORDERRADIUS;
+  BG_DIM = *PBGDIM;
+  WORKSPACE_INDICATOR_ENABLED = *PWORKSPACEINDICATORENABLED != 0;
+  WORKSPACE_INDICATOR_FONT_SIZE = *PWORKSPACEINDICATORFONTSIZE;
+  WORKSPACE_INDICATOR_BG_OPACITY = *PWORKSPACEINDICATORBGOPACITY;
   WORKSPACE_INDICATOR_POSITION = "";
-  WINDOW_NAME_ENABLED = **PWINDOWNAMEENABLED != 0;
-  WINDOW_NAME_FONT_SIZE = **PWINDOWNAMEFONTSIZE;
-  WINDOW_NAME_BG_OPACITY = **PWINDOWNAMEBGOPACITY;
-  WINDOW_TEXT_COLOR = **PWINDOWTEXTCOLOR;
+  WINDOW_NAME_ENABLED = *PWINDOWNAMEENABLED != 0;
+  WINDOW_NAME_FONT_SIZE = *PWINDOWNAMEFONTSIZE;
+  WINDOW_NAME_BG_OPACITY = *PWINDOWNAMEBGOPACITY;
+  WINDOW_TEXT_COLOR = *PWINDOWTEXTCOLOR;
 
-  try {
-    if (PWORKSPACEINDICATORPOSITION_VAL) {
-      if (auto strPtr =
-              (Hyprlang::STRING const *)
-                  PWORKSPACEINDICATORPOSITION_VAL->getDataStaticPtr()) {
-        if (*strPtr) {
-          WORKSPACE_INDICATOR_POSITION = *strPtr;
-        }
-      }
-    }
-  } catch (...) {
-    // Keep default on any exception
-  }
+  WORKSPACE_INDICATOR_POSITION = *PWORKSPACEINDICATORPOSITION_VAL;
 
   std::vector<PHLWINDOW> windowsToRender;
 
@@ -1236,15 +1186,12 @@ void CHyprView::onSwipeUpdate(double delta) {
   if (swipeWasCommenced)
     return;
 
-  static auto *const *PDISTANCE =
-      (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-          PHANDLE, "plugin:hyprview:gesture_distance")
-          ->getDataStaticPtr();
+  static const CConfigValue<Config::INTEGER> PDISTANCE("plugin:hyprview:gesture_distance");
 
   // Calculate progress percentage based on swipe direction
   // For opening: delta 0 -> distance means scale 0 -> 1 (original -> tile)
   // For closing: delta 0 -> distance means scale 1 -> 0 (tile -> original)
-  const float PERC = std::clamp(delta / (double)**PDISTANCE, 0.0, 1.0);
+  const float PERC = std::clamp(delta / (double)*PDISTANCE, 0.0, 1.0);
   scale->setValueAndWarp(closing ? (1.0f - PERC) : PERC);
 }
 

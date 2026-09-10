@@ -1,3 +1,7 @@
+#include <hyprland/src/config/values/types/IntValue.hpp>
+#include <hyprland/src/config/values/types/FloatValue.hpp>
+#include <hyprland/src/config/values/types/StringValue.hpp>
+#include <lua.hpp>
 #define WLR_USE_UNSTABLE
 
 #include "PlacementAlgorithms.hpp"
@@ -337,11 +341,8 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     }
 
     // Get margin from config
-    static auto *const *PMARGIN =
-        (Hyprlang::INT *const *)HyprlandAPI::getConfigValue(
-            PHANDLE, "plugin:hyprview:margin")
-            ->getDataStaticPtr();
-    int margin = **PMARGIN;
+    static const CConfigValue<Config::INTEGER> PMARGIN("plugin:hyprview:margin");
+    int margin = *PMARGIN;
 
     // Prepare screen info
     ScreenInfo screenInfo = {availableSize.x, availableSize.y,
@@ -398,12 +399,9 @@ static SDispatchResult onHyprviewDispatcher(std::string arg) {
     // Close all instances, similar to onCursorSelect in hyprview.cpp
     for (auto &[monitor, instance] : g_pHyprViewInstances) {
       if (instance && !instance->closing) {
-        // For a general OFF, close all non-explicit instances.
-        // If a specific monitor is targeted, close it regardless.
-        bool isExplicitlyTargeted = !parsedArgs.targetMonitor.empty() &&
-                                    monitor->m_name == parsedArgs.targetMonitor;
-
-        if (!instance->stickyOn || isExplicitlyTargeted) {
+        // An explicit close command must also close overviews opened with "on".
+        if (parsedArgs.targetMonitor.empty() ||
+            monitor->m_name == parsedArgs.targetMonitor) {
           instance->close();
         }
       }
@@ -730,6 +728,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
   // Block workspace gestures when overview is active
   static auto gestureBeginHook = Event::bus()->m_events.gesture.swipe.begin.listen(
       [](const IPointer::SSwipeBeginEvent&, SCallbackInfo &info) {
+        if (Config::mgr()->type() == Config::CONFIG_LUA)
+          return;
         // If any overview is active and it's not the hyprview gesture itself,
         // cancel the gesture
         if (!g_pHyprViewInstances.empty()) {
@@ -753,6 +753,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
   static auto gestureUpdateHook = Event::bus()->m_events.gesture.swipe.update.listen(
       [](const IPointer::SSwipeUpdateEvent&, SCallbackInfo &info) {
+        if (Config::mgr()->type() == Config::CONFIG_LUA)
+          return;
         // Block gesture updates when overview is active (unless it's the
         // hyprview gesture)
         if (!g_pHyprViewInstances.empty()) {
@@ -772,6 +774,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
   static auto gestureEndHook = Event::bus()->m_events.gesture.swipe.end.listen(
       [](const IPointer::SSwipeEndEvent&, SCallbackInfo &info) {
+        if (Config::mgr()->type() == Config::CONFIG_LUA)
+          return;
         // Block gesture end when overview is active (unless it's the hyprview
         // gesture)
         if (!g_pHyprViewInstances.empty()) {
@@ -789,48 +793,57 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
       });
 
+  if (Config::mgr()->type() == Config::CONFIG_LUA) {
+    if (!HyprlandAPI::addLuaFunction(PHANDLE, "hyprview", "toggle", [](lua_State *L) -> int {
+          const std::string args = luaL_optstring(L, 1, "");
+          const auto result = onHyprviewDispatcher(args);
+          lua_pushboolean(L, result.success);
+          lua_pushlstring(L, result.error.data(), result.error.size());
+          return 2;
+        }))
+      throw std::runtime_error("[hyprview] Cannot register Lua toggle function");
+  } else {
+    HyprlandAPI::addConfigKeyword(PHANDLE, "hyprview-gesture",
+                                ::hyprviewGestureKeyword, {});
+  }
+
   HyprlandAPI::addDispatcherV2(PHANDLE, "hyprview:toggle",
                                ::onHyprviewDispatcher);
 
   Debug::log(LOG, "[hyprview] Plugin initialized, dispatchers "
                   "'hyprview:toggle' registered");
 
-  HyprlandAPI::addConfigKeyword(PHANDLE, "hyprview-gesture",
-                                ::hyprviewGestureKeyword, {});
 
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:margin",
-                              Hyprlang::INT{10});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:gesture_distance",
-                              Hyprlang::INT{200});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:active_border_color",
-                              Hyprlang::INT{0xFFCA7815});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:inactive_border_color",
-                              Hyprlang::INT{0x88c0c0c0});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:border_width",
-                              Hyprlang::INT{5});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:border_radius",
-                              Hyprlang::INT{5});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:bg_dim",
-                              Hyprlang::FLOAT{0.4});
-  HyprlandAPI::addConfigValue(
-      PHANDLE, "plugin:hyprview:workspace_indicator_enabled", Hyprlang::INT{1});
-  HyprlandAPI::addConfigValue(PHANDLE,
-                              "plugin:hyprview:workspace_indicator_font_size",
-                              Hyprlang::INT{28});
-  HyprlandAPI::addConfigValue(PHANDLE,
-                              "plugin:hyprview:workspace_indicator_position",
-                              Hyprlang::STRING{""});
-  HyprlandAPI::addConfigValue(PHANDLE,
-                              "plugin:hyprview:workspace_indicator_bg_opacity",
-                              Hyprlang::FLOAT{0.85});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_enabled",
-                              Hyprlang::INT{1});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_font_size",
-                              Hyprlang::INT{20});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_name_bg_opacity",
-                              Hyprlang::FLOAT{0.85});
-  HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprview:window_text_color",
-                              Hyprlang::INT{0xFFFFFFFF});
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:margin", "Hyprview option", 10)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:margin");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:gesture_distance", "Hyprview option", 200)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:gesture_distance");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:active_border_color", "Hyprview option", 0xFFCA7815)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:active_border_color");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:inactive_border_color", "Hyprview option", 0x88c0c0c0)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:inactive_border_color");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:border_width", "Hyprview option", 5)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:border_width");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:border_radius", "Hyprview option", 5)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:border_radius");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CFloatValue>("plugin:hyprview:bg_dim", "Hyprview option", 0.4)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:bg_dim");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:workspace_indicator_enabled", "Hyprview option", 1)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:workspace_indicator_enabled");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:workspace_indicator_font_size", "Hyprview option", 28)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:workspace_indicator_font_size");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CStringValue>("plugin:hyprview:workspace_indicator_position", "Hyprview option", "")))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:workspace_indicator_position");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CFloatValue>("plugin:hyprview:workspace_indicator_bg_opacity", "Hyprview option", 0.85)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:workspace_indicator_bg_opacity");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:window_name_enabled", "Hyprview option", 1)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_name_enabled");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:window_name_font_size", "Hyprview option", 20)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_name_font_size");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CFloatValue>("plugin:hyprview:window_name_bg_opacity", "Hyprview option", 0.85)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_name_bg_opacity");
+  if (!HyprlandAPI::addConfigValueV2(PHANDLE, makeShared<Config::Values::CIntValue>("plugin:hyprview:window_text_color", "Hyprview option", 0xFFFFFFFF)))
+    throw std::runtime_error("[hyprview] Cannot register plugin:hyprview:window_text_color");
   HyprlandAPI::reloadConfig();
 
   return {"hyprview", "Window overview with multiple placement algorithms",
