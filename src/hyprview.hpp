@@ -111,6 +111,7 @@ private:
   struct SWindowImage {
     SP<Render::IFramebuffer> fb;
     PHLWINDOWREF pWindow;
+    Fullscreen::SFullscreenMode originalFullscreen;
     CBox box;
     Vector2D originalPos;
     Vector2D originalSize;
